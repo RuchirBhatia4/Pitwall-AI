@@ -1,0 +1,12 @@
+race,driver,team,compound,historical_deg_estimate,practice_deg_estimate,practice_confidence,calibrated_deg_estimate,clean_laps_used,sessions_used,calibration_method
+Australia,ALO,Aston Martin,HARD,0.012392973006939563,0.1638537949326797,0.6225229304463664,0.08310884904170983,6,2,practice_confidence_weighted_slope_blend_v1
+Australia,GAS,Alpine,HARD,0.01239297300693956,0.1681396365077717,0.7290833838858464,0.09755720134752727,8,2,practice_confidence_weighted_slope_blend_v1
+Australia,HAM,Mercedes,MEDIUM,-0.021265767196547096,0.15300000000000546,0.7292364480133486,0.07404494461400425,8,2,practice_confidence_weighted_slope_blend_v1
+Australia,LEC,Ferrari,HARD,0.01239297300693956,0.14813913642849663,0.7291292616078693,0.08662534793318537,8,2,practice_confidence_weighted_slope_blend_v1
+Australia,NOR,McLaren,MEDIUM,0.015768310675217296,0.1435348980048603,0.7292435854760246,0.08564803386144568,8,2,practice_confidence_weighted_slope_blend_v1
+Australia,PER,Red Bull Racing,MEDIUM,0.01811756038258149,0.16300000000000317,0.7292456640924107,0.09735872855318295,8,2,practice_confidence_weighted_slope_blend_v1
+Australia,PIA,McLaren,HARD,0.012392973006939515,0.14946507960057936,0.7290924497817002,0.08734665150176091,8,2,practice_confidence_weighted_slope_blend_v1
+Australia,RUS,Mercedes,HARD,-0.03361510065873783,0.16299999999999845,0.7292456640924104,0.07392043157911936,8,2,practice_confidence_weighted_slope_blend_v1
+Australia,SAI,Williams,MEDIUM,0.009874138373533332,0.16486047119234767,0.7292469438414022,0.0946416205325134,8,2,practice_confidence_weighted_slope_blend_v1
+Australia,VER,Red Bull Racing,HARD,0.012392973006939569,0.1421394571003133,0.7289806582215991,0.08332998103918395,8,2,practice_confidence_weighted_slope_blend_v1
+Australia,VER,Red Bull Racing,MEDIUM,0.01811756038258149,0.14304546058322534,0.7291492072222917,0.08643586992601526,8,2,practice_confidence_weighted_slope_blend_v1

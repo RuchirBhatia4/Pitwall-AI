@@ -1,0 +1,4 @@
+model,mae,rmse,r2,validation_type,holdout_season,holdout_race,weighted_training,target,engineered_features,prior_features
+Ridge Regression Holdout Weighted Fuel Adjusted Engineered Priors,1.7675085270603192,2.3890867730011442,-0.2876650275773873,future_race_holdout,2026,Japan,True,fuel_adjusted_degradation_delta,True,True
+XGBoost Regressor Holdout Weighted Fuel Adjusted Engineered Priors,1.6956018825896917,2.207033679781017,-0.09889696557243877,future_race_holdout,2026,Japan,True,fuel_adjusted_degradation_delta,True,True
+LightGBM Regressor Holdout Weighted Fuel Adjusted Engineered Priors,1.7224726612354004,2.2314316558432834,-0.12332709040601886,future_race_holdout,2026,Japan,True,fuel_adjusted_degradation_delta,True,True

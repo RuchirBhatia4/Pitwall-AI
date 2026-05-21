@@ -1,0 +1,23 @@
+race,driver,team,starting_position,starting_compound,base_pace_seconds,race_laps,pit_loss_green_seconds,pit_loss_safety_car_seconds,overtaking_difficulty,track_position_importance,safety_car_probability,setup_source
+Japan,PIA,McLaren,1,MEDIUM,94.745,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,LEC,Ferrari,2,MEDIUM,95.09,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,NOR,McLaren,3,MEDIUM,95.05,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,RUS,Mercedes,4,MEDIUM,94.187,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,HAM,Ferrari,5,MEDIUM,93.848,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,ANT,Mercedes,6,MEDIUM,93.345,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,GAS,Alpine,7,MEDIUM,94.653,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,HAD,Red Bull Racing,8,MEDIUM,96.188,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,LIN,Racing Bulls,9,MEDIUM,96.39,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,VER,Red Bull Racing,10,MEDIUM,94.661,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,OCO,Haas F1 Team,11,MEDIUM,95.943,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,LAW,Racing Bulls,12,MEDIUM,94.912,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,BOR,Audi,13,MEDIUM,96.022,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,COL,Alpine,14,MEDIUM,96.533,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,SAI,Williams,15,MEDIUM,96.368,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,BEA,Haas F1 Team,16,MEDIUM,96.294,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,ALB,Williams,17,MEDIUM,96.628,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,PER,Cadillac,18,MEDIUM,96.924,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,HUL,Audi,19,MEDIUM,96.255,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,ALO,Aston Martin,20,MEDIUM,97.864,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,STR,Aston Martin,21,MEDIUM,98.22,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps
+Japan,BOT,Cadillac,22,HARD,98.232,53,22.0,13.0,0.78,0.82,0.35,actual_2026_japan_clean_laps

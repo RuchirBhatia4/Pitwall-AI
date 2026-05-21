@@ -1,0 +1,23 @@
+race,season,driver,team,actual_first_pit_lap,model_first_pit_now_lap,confirmed_first_pit_call_lap,first_pit_lap_error,confirmed_first_pit_lap_error,first_stop_signal_status,confirmed_signal_status,last_pre_stop_model_action,actual_final_position,model_projected_finish_at_signal,mean_gap_to_ahead_seconds,mean_pit_recovery_probability
+Japan,2026,ANT,Mercedes,27.0,15.0,,-12,,pre_stop_signal,no_confirmed_signal_before_actual_stop,stay_out,1,3.0,0.4897234042553224,0.4960149763750222
+Japan,2026,PIA,McLaren,19.0,16.0,,-3,,pre_stop_signal,no_confirmed_signal_before_actual_stop,stay_out,2,4.0,0.0056444444444423425,0.5493555722093908
+Japan,2026,LEC,Ferrari,18.0,15.0,16.0,-3,-2,pre_stop_signal,confirmed_pre_stop_signal,pit_now,3,6.0,2.113466666666668,0.5139107636192881
+Japan,2026,RUS,Mercedes,27.0,17.0,,-10,,pre_stop_signal,no_confirmed_signal_before_actual_stop,pit_now,4,4.0,33.21976086956521,0.5055310276437046
+Japan,2026,NOR,McLaren,17.0,15.0,,-2,,pre_stop_signal,no_confirmed_signal_before_actual_stop,pit_now,5,8.0,0.6521777777777806,0.5195127170322323
+Japan,2026,HAM,Ferrari,27.0,15.0,,-12,,pre_stop_signal,no_confirmed_signal_before_actual_stop,stay_out,6,5.0,80.05750000000008,0.4652921322380978
+Japan,2026,GAS,Alpine,27.0,,,,,no_signal_before_actual_stop,no_confirmed_signal_before_actual_stop,stay_out,7,,103.05746808510636,0.4923077790952145
+Japan,2026,VER,Red Bull Racing,27.0,20.0,,-7,,pre_stop_signal,no_confirmed_signal_before_actual_stop,stay_out,8,6.0,12.691297872340444,0.5009157417427594
+Japan,2026,LAW,Racing Bulls,27.0,19.0,20.0,-8,-7,pre_stop_signal,confirmed_pre_stop_signal,pit_now,9,9.0,29.97295744680854,0.4776396198046225
+Japan,2026,OCO,Haas F1 Team,20.0,,,,,no_signal_before_actual_stop,no_confirmed_signal_before_actual_stop,stay_out,10,,5.965222222222223,0.5097349232012496
+Japan,2026,HUL,Audi,27.0,,,,,no_signal_before_actual_stop,no_confirmed_signal_before_actual_stop,stay_out,11,,46.37760869565217,0.4774931402461829
+Japan,2026,HAD,Red Bull Racing,20.0,15.0,,-5,,pre_stop_signal,no_confirmed_signal_before_actual_stop,pit_now,12,13.0,2.224244444444443,0.508347301532699
+Japan,2026,BOR,Audi,27.0,16.0,17.0,-11,-10,pre_stop_signal,confirmed_pre_stop_signal,stay_out,13,12.0,88.35965957446814,0.4418066184965964
+Japan,2026,LIN,Racing Bulls,19.0,15.0,16.0,-4,-3,pre_stop_signal,confirmed_pre_stop_signal,stay_out,14,13.0,0.8144999999999986,0.4560731805002705
+Japan,2026,SAI,Williams,27.0,,,,,no_signal_before_actual_stop,no_confirmed_signal_before_actual_stop,stay_out,15,,179.35240425531916,0.42425033463926853
+Japan,2026,COL,Alpine,18.0,15.0,16.0,-3,-2,pre_stop_signal,confirmed_pre_stop_signal,pit_now,16,15.0,0.3706363636363745,0.4757666854301533
+Japan,2026,ALB,Williams,27.0,,,,,no_signal_before_actual_stop,no_confirmed_signal_before_actual_stop,stay_out,17,,90.5678918918919,0.4256496044031652
+Japan,2026,PER,Cadillac,27.0,,,,,no_signal_before_actual_stop,no_confirmed_signal_before_actual_stop,stay_out,17,,15.229499999999971,0.5207728722429963
+Japan,2026,ALO,Aston Martin,27.0,15.0,16.0,-12,-11,pre_stop_signal,confirmed_pre_stop_signal,pit_now,18,19.0,60.889348837209326,0.610939740824931
+Japan,2026,BEA,Haas F1 Team,17.0,,,,,no_signal_before_actual_stop,no_confirmed_signal_before_actual_stop,stay_out,18,,0.48352941176469827,0.4568549019607847
+Japan,2026,BOT,Cadillac,25.0,,,,,no_signal_before_actual_stop,no_confirmed_signal_before_actual_stop,stay_out,19,,4.73787804878044,0.8999999999999999
+Japan,2026,STR,Aston Martin,,16.0,17.0,,,no_actual_stop_reference,no_actual_stop_reference,pit_now,20,18.0,25.062052631578965,0.4894817042606523

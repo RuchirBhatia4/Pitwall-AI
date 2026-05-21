@@ -1,0 +1,23 @@
+race,driver,team,starting_position,starting_compound,base_pace_seconds,race_laps,pit_loss_green_seconds,pit_loss_safety_car_seconds,overtaking_difficulty,track_position_importance,safety_car_probability,setup_source
+Miami,ANT,Mercedes,1,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,RUS,Mercedes,2,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,LEC,Ferrari,3,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,HAM,Ferrari,4,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,NOR,McLaren,5,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,PIA,McLaren,6,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,BEA,Haas F1 Team,7,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,GAS,Alpine,8,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,VER,Red Bull Racing,9,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,LAW,Racing Bulls,10,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,LIN,Racing Bulls,11,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,HAD,Red Bull Racing,12,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,BOR,Audi,13,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,SAI,Williams,14,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,OCO,Haas F1 Team,15,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,COL,Alpine,16,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,HUL,Audi,17,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,ALB,Williams,18,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,BOT,Cadillac,19,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,PER,Cadillac,20,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,ALO,Aston Martin,21,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded
+Miami,STR,Aston Martin,22,MEDIUM,92.0,57,22.0,13.0,0.72,0.78,0.45,standings_seeded

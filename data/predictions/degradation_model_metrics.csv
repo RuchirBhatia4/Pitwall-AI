@@ -1,0 +1,4 @@
+model,mae,rmse,r2,weighted_training,target,engineered_features,prior_features
+Ridge Regression Weighted Fuel Adjusted Engineered Priors,1.4143550429141536,1.9517559169682381,0.404653814540199,True,fuel_adjusted_degradation_delta,True,True
+XGBoost Regressor Weighted Fuel Adjusted Engineered Priors,0.9688913608919647,1.4309000848415356,0.680009426410108,True,fuel_adjusted_degradation_delta,True,True
+LightGBM Regressor Weighted Fuel Adjusted Engineered Priors,0.9671290914565087,1.4306686389587198,0.6801129340022813,True,fuel_adjusted_degradation_delta,True,True

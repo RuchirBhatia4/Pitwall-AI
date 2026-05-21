@@ -1,0 +1,25 @@
+race,session,driver,team,compound,lap_number,stint_lap,lap_time_seconds,track_temp,air_temp,run_type,clean_lap,traffic_affected,drs_used
+Australia,FP1,VER,Red Bull Racing,MEDIUM,9,1,94.10,41.2,27.8,LONG_RUN,True,False,False
+Australia,FP1,VER,Red Bull Racing,MEDIUM,10,2,94.24,41.0,27.7,LONG_RUN,True,False,False
+Australia,FP1,VER,Red Bull Racing,MEDIUM,11,3,94.36,40.8,27.6,LONG_RUN,True,False,False
+Australia,FP1,VER,Red Bull Racing,MEDIUM,12,4,94.52,40.7,27.5,LONG_RUN,True,False,False
+Australia,FP1,VER,Red Bull Racing,MEDIUM,13,5,94.65,40.6,27.4,LONG_RUN,True,False,False
+Australia,FP1,VER,Red Bull Racing,MEDIUM,14,6,94.81,40.4,27.4,LONG_RUN,True,False,False
+Australia,FP2,VER,Red Bull Racing,MEDIUM,17,1,93.98,39.8,26.9,LONG_RUN,True,False,False
+Australia,FP2,VER,Red Bull Racing,MEDIUM,18,2,94.12,39.7,26.9,LONG_RUN,True,False,False
+Australia,FP2,VER,Red Bull Racing,MEDIUM,19,3,94.29,39.6,26.8,LONG_RUN,True,False,False
+Australia,FP2,VER,Red Bull Racing,MEDIUM,20,4,94.45,39.5,26.8,LONG_RUN,True,False,False
+Australia,FP2,VER,Red Bull Racing,MEDIUM,21,5,94.62,39.3,26.7,LONG_RUN,True,False,False
+Australia,FP3,VER,Red Bull Racing,MEDIUM,6,1,94.04,38.9,25.9,RACE_PACE,True,False,False
+Australia,FP3,VER,Red Bull Racing,MEDIUM,7,2,94.15,38.8,25.9,RACE_PACE,True,False,False
+Australia,FP3,VER,Red Bull Racing,MEDIUM,8,3,94.29,38.7,25.8,RACE_PACE,True,False,False
+Australia,FP3,VER,Red Bull Racing,MEDIUM,9,4,94.43,38.6,25.8,RACE_PACE,True,False,False
+Australia,FP2,LEC,Ferrari,HARD,15,1,94.72,39.9,27.0,LONG_RUN,True,False,False
+Australia,FP2,LEC,Ferrari,HARD,16,2,94.84,39.8,26.9,LONG_RUN,True,False,False
+Australia,FP2,LEC,Ferrari,HARD,17,3,94.99,39.7,26.9,LONG_RUN,True,False,False
+Australia,FP2,LEC,Ferrari,HARD,18,4,95.11,39.6,26.8,LONG_RUN,True,False,False
+Australia,FP2,LEC,Ferrari,HARD,19,5,95.27,39.5,26.8,LONG_RUN,True,False,False
+Australia,FP1,LEC,Ferrari,HARD,7,1,95.02,41.0,27.6,LONG_RUN,False,False,False
+Australia,FP1,LEC,Ferrari,HARD,8,2,95.30,40.9,27.6,LONG_RUN,True,True,False
+Australia,FP3,LEC,Ferrari,HARD,5,1,94.80,38.8,25.9,RACE_PACE,True,False,True
+Australia,FP3,LEC,Ferrari,HARD,10,1,93.20,38.8,25.9,QUALI_SIM,True,False,False

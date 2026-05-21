@@ -1,0 +1,89 @@
+race,session,driver,team,compound,lap_number,stint_lap,lap_time_seconds,track_temp,air_temp,run_type,clean_lap,traffic_affected,drs_used
+Australia,FP2,VER,Red Bull Racing,MEDIUM,17,1,94.00,39.8,26.8,LONG_RUN,True,False,False
+Australia,FP2,VER,Red Bull Racing,MEDIUM,18,2,94.14,39.7,26.8,LONG_RUN,True,False,False
+Australia,FP2,VER,Red Bull Racing,MEDIUM,19,3,94.29,39.6,26.7,LONG_RUN,True,False,False
+Australia,FP2,VER,Red Bull Racing,MEDIUM,20,4,94.45,39.5,26.7,LONG_RUN,True,False,False
+Australia,FP3,VER,Red Bull Racing,MEDIUM,7,1,93.90,38.8,25.8,RACE_PACE,True,False,False
+Australia,FP3,VER,Red Bull Racing,MEDIUM,8,2,94.03,38.7,25.8,RACE_PACE,True,False,False
+Australia,FP3,VER,Red Bull Racing,MEDIUM,9,3,94.17,38.6,25.7,RACE_PACE,True,False,False
+Australia,FP3,VER,Red Bull Racing,MEDIUM,10,4,94.31,38.6,25.7,RACE_PACE,True,False,False
+Australia,FP2,VER,Red Bull Racing,HARD,24,1,94.32,39.8,26.8,LONG_RUN,True,False,False
+Australia,FP2,VER,Red Bull Racing,HARD,25,2,94.45,39.7,26.8,LONG_RUN,True,False,False
+Australia,FP2,VER,Red Bull Racing,HARD,26,3,94.59,39.6,26.7,LONG_RUN,True,False,False
+Australia,FP2,VER,Red Bull Racing,HARD,27,4,94.74,39.5,26.7,LONG_RUN,True,False,False
+Australia,FP3,VER,Red Bull Racing,HARD,13,1,94.18,38.8,25.8,RACE_PACE,True,False,False
+Australia,FP3,VER,Red Bull Racing,HARD,14,2,94.31,38.7,25.8,RACE_PACE,True,False,False
+Australia,FP3,VER,Red Bull Racing,HARD,15,3,94.46,38.6,25.7,RACE_PACE,True,False,False
+Australia,FP3,VER,Red Bull Racing,HARD,16,4,94.61,38.6,25.7,RACE_PACE,True,False,False
+Australia,FP2,LEC,Ferrari,HARD,16,1,94.40,39.9,26.9,LONG_RUN,True,False,False
+Australia,FP2,LEC,Ferrari,HARD,17,2,94.55,39.8,26.9,LONG_RUN,True,False,False
+Australia,FP2,LEC,Ferrari,HARD,18,3,94.69,39.7,26.8,LONG_RUN,True,False,False
+Australia,FP2,LEC,Ferrari,HARD,19,4,94.84,39.6,26.8,LONG_RUN,True,False,False
+Australia,FP3,LEC,Ferrari,HARD,8,1,94.25,38.8,25.9,RACE_PACE,True,False,False
+Australia,FP3,LEC,Ferrari,HARD,9,2,94.39,38.7,25.9,RACE_PACE,True,False,False
+Australia,FP3,LEC,Ferrari,HARD,10,3,94.54,38.6,25.8,RACE_PACE,True,False,False
+Australia,FP3,LEC,Ferrari,HARD,11,4,94.70,38.6,25.8,RACE_PACE,True,False,False
+Australia,FP2,NOR,McLaren,MEDIUM,18,1,93.88,39.8,26.8,LONG_RUN,True,False,False
+Australia,FP2,NOR,McLaren,MEDIUM,19,2,94.02,39.7,26.8,LONG_RUN,True,False,False
+Australia,FP2,NOR,McLaren,MEDIUM,20,3,94.16,39.6,26.7,LONG_RUN,True,False,False
+Australia,FP2,NOR,McLaren,MEDIUM,21,4,94.31,39.5,26.7,LONG_RUN,True,False,False
+Australia,FP3,NOR,McLaren,MEDIUM,9,1,93.74,38.8,25.8,RACE_PACE,True,False,False
+Australia,FP3,NOR,McLaren,MEDIUM,10,2,93.88,38.7,25.8,RACE_PACE,True,False,False
+Australia,FP3,NOR,McLaren,MEDIUM,11,3,94.03,38.6,25.7,RACE_PACE,True,False,False
+Australia,FP3,NOR,McLaren,MEDIUM,12,4,94.17,38.6,25.7,RACE_PACE,True,False,False
+Australia,FP2,PIA,McLaren,HARD,22,1,94.21,39.8,26.8,LONG_RUN,True,False,False
+Australia,FP2,PIA,McLaren,HARD,23,2,94.35,39.7,26.8,LONG_RUN,True,False,False
+Australia,FP2,PIA,McLaren,HARD,24,3,94.50,39.6,26.7,LONG_RUN,True,False,False
+Australia,FP2,PIA,McLaren,HARD,25,4,94.66,39.5,26.7,LONG_RUN,True,False,False
+Australia,FP3,PIA,McLaren,HARD,11,1,94.07,38.8,25.8,RACE_PACE,True,False,False
+Australia,FP3,PIA,McLaren,HARD,12,2,94.22,38.7,25.8,RACE_PACE,True,False,False
+Australia,FP3,PIA,McLaren,HARD,13,3,94.36,38.6,25.7,RACE_PACE,True,False,False
+Australia,FP3,PIA,McLaren,HARD,14,4,94.52,38.6,25.7,RACE_PACE,True,False,False
+Australia,FP2,HAM,Mercedes,MEDIUM,17,1,94.15,39.9,26.9,LONG_RUN,True,False,False
+Australia,FP2,HAM,Mercedes,MEDIUM,18,2,94.30,39.8,26.9,LONG_RUN,True,False,False
+Australia,FP2,HAM,Mercedes,MEDIUM,19,3,94.45,39.7,26.8,LONG_RUN,True,False,False
+Australia,FP2,HAM,Mercedes,MEDIUM,20,4,94.61,39.6,26.8,LONG_RUN,True,False,False
+Australia,FP3,HAM,Mercedes,MEDIUM,8,1,94.01,38.8,25.9,RACE_PACE,True,False,False
+Australia,FP3,HAM,Mercedes,MEDIUM,9,2,94.16,38.7,25.9,RACE_PACE,True,False,False
+Australia,FP3,HAM,Mercedes,MEDIUM,10,3,94.31,38.6,25.8,RACE_PACE,True,False,False
+Australia,FP3,HAM,Mercedes,MEDIUM,11,4,94.47,38.6,25.8,RACE_PACE,True,False,False
+Australia,FP2,RUS,Mercedes,HARD,23,1,94.28,39.9,26.9,LONG_RUN,True,False,False
+Australia,FP2,RUS,Mercedes,HARD,24,2,94.44,39.8,26.9,LONG_RUN,True,False,False
+Australia,FP2,RUS,Mercedes,HARD,25,3,94.60,39.7,26.8,LONG_RUN,True,False,False
+Australia,FP2,RUS,Mercedes,HARD,26,4,94.77,39.6,26.8,LONG_RUN,True,False,False
+Australia,FP3,RUS,Mercedes,HARD,12,1,94.14,38.8,25.9,RACE_PACE,True,False,False
+Australia,FP3,RUS,Mercedes,HARD,13,2,94.30,38.7,25.9,RACE_PACE,True,False,False
+Australia,FP3,RUS,Mercedes,HARD,14,3,94.46,38.6,25.8,RACE_PACE,True,False,False
+Australia,FP3,RUS,Mercedes,HARD,15,4,94.63,38.6,25.8,RACE_PACE,True,False,False
+Australia,FP2,SAI,Williams,MEDIUM,19,1,94.52,39.9,26.9,LONG_RUN,True,False,False
+Australia,FP2,SAI,Williams,MEDIUM,20,2,94.68,39.8,26.9,LONG_RUN,True,False,False
+Australia,FP2,SAI,Williams,MEDIUM,21,3,94.85,39.7,26.8,LONG_RUN,True,False,False
+Australia,FP2,SAI,Williams,MEDIUM,22,4,95.02,39.6,26.8,LONG_RUN,True,False,False
+Australia,FP3,SAI,Williams,MEDIUM,10,1,94.37,38.8,25.9,RACE_PACE,True,False,False
+Australia,FP3,SAI,Williams,MEDIUM,11,2,94.53,38.7,25.9,RACE_PACE,True,False,False
+Australia,FP3,SAI,Williams,MEDIUM,12,3,94.69,38.6,25.8,RACE_PACE,True,False,False
+Australia,FP3,SAI,Williams,MEDIUM,13,4,94.86,38.6,25.8,RACE_PACE,True,False,False
+Australia,FP2,ALO,Aston Martin,HARD,20,1,94.48,39.9,26.9,LONG_RUN,False,True,False
+Australia,FP2,ALO,Aston Martin,HARD,21,2,94.64,39.8,26.9,LONG_RUN,True,False,False
+Australia,FP2,ALO,Aston Martin,HARD,22,3,94.80,39.7,26.8,LONG_RUN,True,False,False
+Australia,FP2,ALO,Aston Martin,HARD,23,4,94.97,39.6,26.8,LONG_RUN,True,False,False
+Australia,FP3,ALO,Aston Martin,HARD,11,1,94.33,38.8,25.9,RACE_PACE,True,False,False
+Australia,FP3,ALO,Aston Martin,HARD,12,2,94.49,38.7,25.9,RACE_PACE,False,True,False
+Australia,FP3,ALO,Aston Martin,HARD,13,3,94.65,38.6,25.8,RACE_PACE,True,False,False
+Australia,FP3,ALO,Aston Martin,HARD,14,4,94.82,38.6,25.8,RACE_PACE,True,False,False
+Australia,FP2,PER,Red Bull Racing,MEDIUM,18,1,94.20,39.9,26.9,LONG_RUN,True,False,False
+Australia,FP2,PER,Red Bull Racing,MEDIUM,19,2,94.36,39.8,26.9,LONG_RUN,True,False,False
+Australia,FP2,PER,Red Bull Racing,MEDIUM,20,3,94.52,39.7,26.8,LONG_RUN,True,False,False
+Australia,FP2,PER,Red Bull Racing,MEDIUM,21,4,94.69,39.6,26.8,LONG_RUN,True,False,False
+Australia,FP3,PER,Red Bull Racing,MEDIUM,9,1,94.07,38.8,25.9,RACE_PACE,True,False,False
+Australia,FP3,PER,Red Bull Racing,MEDIUM,10,2,94.23,38.7,25.9,RACE_PACE,True,False,False
+Australia,FP3,PER,Red Bull Racing,MEDIUM,11,3,94.39,38.6,25.8,RACE_PACE,True,False,False
+Australia,FP3,PER,Red Bull Racing,MEDIUM,12,4,94.56,38.6,25.8,RACE_PACE,True,False,False
+Australia,FP2,GAS,Alpine,HARD,21,1,94.86,39.9,26.9,LONG_RUN,True,False,False
+Australia,FP2,GAS,Alpine,HARD,22,2,95.02,39.8,26.9,LONG_RUN,True,False,False
+Australia,FP2,GAS,Alpine,HARD,23,3,95.18,39.7,26.8,LONG_RUN,True,False,False
+Australia,FP2,GAS,Alpine,HARD,24,4,95.36,39.6,26.8,LONG_RUN,True,False,False
+Australia,FP3,GAS,Alpine,HARD,12,1,94.72,38.8,25.9,RACE_PACE,True,False,False
+Australia,FP3,GAS,Alpine,HARD,13,2,94.88,38.7,25.9,RACE_PACE,True,False,False
+Australia,FP3,GAS,Alpine,HARD,14,3,95.05,38.6,25.8,RACE_PACE,True,False,False
+Australia,FP3,GAS,Alpine,HARD,15,4,95.23,38.6,25.8,RACE_PACE,True,False,False

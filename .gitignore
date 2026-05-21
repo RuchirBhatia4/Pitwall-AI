@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environments
+venv/
+.venv/
+env/
+.env
+
+# Notebook and OS noise
+.ipynb_checkpoints/
+.DS_Store
+
+# FastF1 and generated raw caches can be rebuilt locally.
+data/raw/fastf1/cache/
+
+# MLflow local tracking artifacts are intentionally not committed.
+mlruns/
+mlflow.db
+
+# Local logs and temporary files
+*.log
+tmp/
+temp/

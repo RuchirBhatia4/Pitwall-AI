@@ -1,0 +1,43 @@
+race,driver,team,compound,historical_deg_estimate,practice_deg_estimate,practice_confidence,calibrated_deg_estimate,clean_laps_used,sessions_used,calibration_method
+Japan,ALB,Williams,HARD,0.015,-0.027946078431372718,1.0,0.015,17,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,ALB,Williams,MEDIUM,0.015,0.009748120300751797,1.0,0.015,20,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,ALO,Aston Martin,MEDIUM,0.0377198991338667,0.0377198991338667,1.0,0.0377198991338667,43,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,ANT,Mercedes,HARD,0.05996341880341867,0.05996341880341867,1.0,0.05996341880341867,26,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,ANT,Mercedes,MEDIUM,0.015270676691729376,0.015270676691729376,1.0,0.015270676691729376,20,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,BEA,Haas F1 Team,HARD,0.015,-0.1649999999999993,0.25,0.015,3,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,BEA,Haas F1 Team,MEDIUM,0.04299756097560957,0.04299756097560957,1.0,0.04299756097560957,13,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,BOR,Audi,HARD,0.015,0.008966495726495676,1.0,0.015,26,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,BOR,Audi,MEDIUM,0.015,0.011948120300751732,1.0,0.015,20,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,BOT,Cadillac,HARD,0.14355147058823498,0.14355147058823498,1.0,0.14355147058823498,17,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,BOT,Cadillac,MEDIUM,0.03934233969652463,0.03934233969652463,1.0,0.03934233969652463,26,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,COL,Alpine,HARD,0.015,0.010427256792287506,1.0,0.015,28,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,COL,Alpine,MEDIUM,0.059157142857142596,0.059157142857142596,1.0,0.059157142857142596,15,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,GAS,Alpine,HARD,0.04559658119658094,0.04559658119658094,1.0,0.04559658119658094,26,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,GAS,Alpine,MEDIUM,0.05910827067669178,0.05910827067669178,1.0,0.05910827067669178,20,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,HAD,Red Bull Racing,HARD,0.015,-0.022053712480252913,1.0,0.015,27,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,HAD,Red Bull Racing,MEDIUM,0.049938725490195825,0.049938725490195825,1.0,0.049938725490195825,17,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,HAM,Ferrari,HARD,0.08673854982893707,0.08673854982893707,1.0,0.08673854982893707,25,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,HAM,Ferrari,MEDIUM,0.02877218045112809,0.02877218045112809,1.0,0.02877218045112809,20,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,HUL,Audi,HARD,0.015,-0.015830769230769134,1.0,0.015,26,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,HUL,Audi,MEDIUM,0.015,-0.02686992481203017,1.0,0.015,20,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,LAW,Racing Bulls,HARD,0.03368581196581189,0.03368581196581189,1.0,0.03368581196581189,26,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,LAW,Racing Bulls,MEDIUM,0.04690075187969904,0.04690075187969904,1.0,0.04690075187969904,20,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,LEC,Ferrari,HARD,0.023574431893687492,0.023574431893687492,1.0,0.023574431893687492,29,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,LEC,Ferrari,MEDIUM,0.0636821428571427,0.0636821428571427,1.0,0.0636821428571427,15,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,LIN,Racing Bulls,HARD,0.015,-0.027956963705592818,1.0,0.015,27,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,LIN,Racing Bulls,MEDIUM,0.0887558823529408,0.0887558823529408,1.0,0.0887558823529408,16,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,NOR,McLaren,HARD,0.041250742582518506,0.041250742582518506,1.0,0.041250742582518506,30,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,NOR,McLaren,MEDIUM,0.06049010989010949,0.06049010989010949,1.0,0.06049010989010949,14,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,OCO,Haas F1 Team,HARD,0.015,-0.001968647466277896,1.0,0.015,27,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,OCO,Haas F1 Team,MEDIUM,0.09897794117647064,0.09897794117647064,1.0,0.09897794117647064,17,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,PER,Cadillac,HARD,0.03136786324786331,0.03136786324786331,1.0,0.03136786324786331,26,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,PER,Cadillac,MEDIUM,0.07099174406604691,0.07099174406604691,1.0,0.07099174406604691,18,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,PIA,McLaren,HARD,0.03141564665500918,0.03141564665500918,1.0,0.03141564665500918,28,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,PIA,McLaren,MEDIUM,0.04930882352941183,0.04930882352941183,1.0,0.04930882352941183,16,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,RUS,Mercedes,HARD,0.020714188034188116,0.020714188034188116,1.0,0.020714188034188116,26,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,RUS,Mercedes,MEDIUM,0.0700245614035083,0.0700245614035083,1.0,0.0700245614035083,19,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,SAI,Williams,HARD,0.016174358974358868,0.016174358974358868,1.0,0.016174358974358868,26,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,SAI,Williams,MEDIUM,0.015,0.008969924812029809,1.0,0.015,20,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,STR,Aston Martin,MEDIUM,0.0677385964912277,0.0677385964912277,1.0,0.0677385964912277,19,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,VER,Red Bull Racing,HARD,0.03877709401709412,0.03877709401709412,1.0,0.03877709401709412,26,1,actual_race_fuel_adjusted_slope_proxy_v1
+Japan,VER,Red Bull Racing,MEDIUM,0.02134962406015019,0.02134962406015019,1.0,0.02134962406015019,20,1,actual_race_fuel_adjusted_slope_proxy_v1

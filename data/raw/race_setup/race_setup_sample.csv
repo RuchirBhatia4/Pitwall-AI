@@ -1,0 +1,23 @@
+race,driver,team,starting_position,starting_compound,base_pace_seconds,race_laps,pit_loss_green_seconds,pit_loss_safety_car_seconds,overtaking_difficulty,track_position_importance,safety_car_probability
+Miami,ANT,Mercedes,1,MEDIUM,91.78,57,22.5,15.5,0.55,0.60,0.35
+Miami,RUS,Mercedes,2,MEDIUM,91.84,57,22.5,15.5,0.55,0.60,0.35
+Miami,LEC,Ferrari,3,MEDIUM,91.92,57,22.5,15.5,0.55,0.60,0.35
+Miami,HAM,Ferrari,4,HARD,92.00,57,22.5,15.5,0.55,0.60,0.35
+Miami,NOR,McLaren,5,SOFT,92.02,57,22.5,15.5,0.55,0.60,0.35
+Miami,PIA,McLaren,6,MEDIUM,92.05,57,22.5,15.5,0.55,0.60,0.35
+Miami,BEA,Haas F1 Team,7,SOFT,92.28,57,22.5,15.5,0.55,0.60,0.35
+Miami,GAS,Alpine,8,MEDIUM,92.34,57,22.5,15.5,0.55,0.60,0.35
+Miami,VER,Red Bull Racing,9,MEDIUM,92.10,57,22.5,15.5,0.55,0.60,0.35
+Miami,LAW,Racing Bulls,10,HARD,92.46,57,22.5,15.5,0.55,0.60,0.35
+Miami,LIN,Racing Bulls,11,MEDIUM,92.52,57,22.5,15.5,0.55,0.60,0.35
+Miami,HAD,Red Bull Racing,12,HARD,92.20,57,22.5,15.5,0.55,0.60,0.35
+Miami,BOR,Audi,13,SOFT,92.58,57,22.5,15.5,0.55,0.60,0.35
+Miami,SAI,Williams,14,MEDIUM,92.48,57,22.5,15.5,0.55,0.60,0.35
+Miami,OCO,Haas F1 Team,15,HARD,92.62,57,22.5,15.5,0.55,0.60,0.35
+Miami,COL,Alpine,16,MEDIUM,92.56,57,22.5,15.5,0.55,0.60,0.35
+Miami,HUL,Audi,17,HARD,92.64,57,22.5,15.5,0.55,0.60,0.35
+Miami,ALB,Williams,18,MEDIUM,92.54,57,22.5,15.5,0.55,0.60,0.35
+Miami,BOT,Cadillac,19,HARD,92.82,57,22.5,15.5,0.55,0.60,0.35
+Miami,PER,Cadillac,20,MEDIUM,92.76,57,22.5,15.5,0.55,0.60,0.35
+Miami,ALO,Aston Martin,21,HARD,92.88,57,22.5,15.5,0.55,0.60,0.35
+Miami,STR,Aston Martin,22,MEDIUM,92.94,57,22.5,15.5,0.55,0.60,0.35

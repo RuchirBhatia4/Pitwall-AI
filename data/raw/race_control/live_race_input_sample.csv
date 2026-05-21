@@ -1,0 +1,3 @@
+lap,event_type,driver,target_driver,compound,notes
+12,safety_car_start,,,,Safety car deployed from dashboard control
+16,safety_car_end,,,,Safety car ended from dashboard control

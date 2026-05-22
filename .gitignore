@@ -27,3 +27,7 @@ mlflow.db
 *.log
 tmp/
 temp/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/

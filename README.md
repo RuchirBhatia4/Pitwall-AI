@@ -27,7 +27,8 @@ FastF1 race data
   -> future-race holdout evaluation
   -> practice race-pace calibration
   -> strategy generation + simulation + optimization
-  -> Streamlit dashboard for analysis/recommendations
+  -> FastAPI backend
+  -> React frontend for analysis/recommendations
 ```
 
 Main code areas:
@@ -36,7 +37,8 @@ Main code areas:
 - `src/evaluation/` (holdout error analysis)
 - `src/simulation/` (strategy generator/simulator/optimizer)
 - `src/pipeline/` (end-to-end prediction/recommendation scripts)
-- `app/streamlit_app.py` (dashboard)
+- `src/api/` (FastAPI service layer and HTTP contracts)
+- `frontend/` (React/Vite dashboard)
 
 ## 6. Current Pipeline
 1. Build historical lap dataset from FastF1 races.
@@ -45,7 +47,7 @@ Main code areas:
 4. Evaluate with both random split and future-race holdout.
 5. Ingest FP1/FP2/FP3 long-run practice data and calibrate degradation.
 6. Simulate legal strategy candidates and rank recommendations.
-7. Surface outputs in Streamlit for filtered inspection.
+7. Surface outputs through a backend API and React frontend for filtered inspection.
 
 ## 7. Data Sources
 - FastF1 race lap data (historical races across 2024, 2025, and completed 2026 rounds).
@@ -111,13 +113,20 @@ Strategy Simulator MVP supports:
   - `risk_score`
   - `is_recommended`
 
-## 13. Streamlit Dashboard
-Dashboard MVP (`app/streamlit_app.py`) provides:
+## 13. Product App
+The non-Streamlit application provides:
 - Calibrated degradation table
 - Strategy recommendation table
 - Recommended-only strategy section
 - Filters for driver/team/compound/strategy
 - Summary metrics (drivers, teams, row counts, recommended count)
+- Pipeline triggers for calibration and strategy generation
+
+Backend entrypoint:
+- `src/api/main.py`
+
+Frontend entrypoint:
+- `frontend/src/main.jsx`
 
 ## 14. Current Validation Results
 ### Random split (engineered features)
@@ -156,8 +165,15 @@ python -m src.models.train_degradation_holdout
 python -m src.evaluation.analyze_holdout_errors
 python -m src.pipeline.generate_calibrated_predictions
 python -m src.pipeline.generate_strategy_recommendations
-streamlit run app/streamlit_app.py
+
+uvicorn src.api.main:app --reload --host 127.0.0.1 --port 8000
+
+cd frontend
+npm install
+npm run dev
 ```
+
+Open the frontend at `http://127.0.0.1:5173`.
 
 ## 17. Test Commands
 ```bash
@@ -165,15 +181,14 @@ venv/bin/python -m unittest discover -s tests -p 'test_*.py'
 ```
 
 ## 18. Deployment
-This repository is deployable as a Streamlit app.
+This repository is structured as a split frontend/backend app:
+- FastAPI serves pipeline actions and prediction outputs.
+- React/Vite serves the dashboard UI.
+- Supabase/Postgres can be used as the live storage backend for deployment.
 
-Recommended Streamlit Community Cloud settings:
-- Repository: this GitHub repository
-- Branch: `main`
-- App entrypoint: `app/streamlit_app.py`
-- Python version: use the same version as local development where possible
+The app expects generated CSV outputs under `data/predictions/` and sample setup/control inputs under `data/raw/race_setup/` and `data/raw/race_control/`. FastF1 cache files, local virtual environments, and MLflow tracking artifacts are intentionally ignored because they are large local runtime artifacts.
 
-The dashboard expects generated CSV outputs under `data/predictions/` and sample setup/control inputs under `data/raw/race_setup/` and `data/raw/race_control/`. FastF1 cache files, local virtual environments, and MLflow tracking artifacts are intentionally ignored because they are large local runtime artifacts.
+See `DEPLOYMENT.md` for Supabase, Render, Vercel, and custom-domain setup.
 
 ## 19. Roadmap
 - Improve practice calibration with richer session/run segmentation and weather/context controls.

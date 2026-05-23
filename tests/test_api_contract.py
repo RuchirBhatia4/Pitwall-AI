@@ -13,6 +13,7 @@ from src.api.services import (
     load_strategy_recommendations,
     summarize_dashboard,
 )
+from src.api.storage import dataframe_to_json_rows
 
 
 class TestApiContract(unittest.TestCase):
@@ -42,6 +43,22 @@ class TestApiContract(unittest.TestCase):
         self.assertEqual(payload["columns"], ["driver", "practice_confidence"])
         self.assertEqual(payload["row_count"], 1)
         self.assertEqual(payload["rows"][0]["driver"], "VER")
+
+    def test_dataframe_to_json_rows_converts_nan_to_none(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "driver": "VER",
+                    "best_safety_car_pit_lap": float("nan"),
+                    "safety_car_gain_seconds": float("inf"),
+                }
+            ]
+        )
+
+        rows = dataframe_to_json_rows(df)
+
+        self.assertIsNone(rows[0]["best_safety_car_pit_lap"])
+        self.assertIsNone(rows[0]["safety_car_gain_seconds"])
 
     def test_dashboard_summary_counts_outputs(self):
         calibrated = pd.DataFrame(

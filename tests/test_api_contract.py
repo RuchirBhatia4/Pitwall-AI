@@ -1,10 +1,12 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import pandas as pd
 from fastapi.testclient import TestClient
 
+import src.api.database as database
 from src.api.contracts import CALIBRATED_REQUIRED_COLUMNS, STRATEGY_REQUIRED_COLUMNS
 from src.api.main import app
 from src.api.services import (
@@ -34,6 +36,24 @@ class TestApiContract(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["backend"], "csv")
         self.assertFalse(payload["database_active"])
+
+    def test_database_engine_disables_prepared_statements_for_pooler(self):
+        database._ENGINE = None
+        with patch("src.api.database.get_database_url") as mock_database_url:
+            with patch("src.api.database.create_engine") as mock_create_engine:
+                mock_database_url.return_value = (
+                    "postgresql://postgres.example:password@pooler.supabase.com:6543/postgres"
+                )
+                mock_create_engine.return_value = object()
+
+                database.get_engine()
+
+        _, kwargs = mock_create_engine.call_args
+        self.assertEqual(
+            kwargs["connect_args"],
+            {"prepare_threshold": None},
+        )
+        database._ENGINE = None
 
     def test_dataframe_response_is_stable(self):
         df = pd.DataFrame([{"driver": "VER", "practice_confidence": 0.75}])

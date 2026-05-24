@@ -27,7 +27,14 @@ def get_engine() -> Engine:
         database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
 
     if _ENGINE is None:
-        _ENGINE = create_engine(database_url, pool_pre_ping=True)
+        _ENGINE = create_engine(
+            database_url,
+            pool_pre_ping=True,
+            # Supabase transaction pooler can route statements across backend
+            # sessions. Disabling psycopg prepared statements avoids
+            # InvalidSqlStatementName errors for pooled API requests.
+            connect_args={"prepare_threshold": None},
+        )
     return _ENGINE
 
 

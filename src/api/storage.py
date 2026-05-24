@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 from sqlalchemy import text
@@ -15,8 +17,33 @@ LIVE_DATASET = "live_race_simulation"
 
 
 def dataframe_to_json_rows(df: pd.DataFrame) -> list[dict]:
-    safe_df = df.where(pd.notna(df), None)
-    return safe_df.to_dict(orient="records")
+    raw_rows = df.astype(object).to_dict(orient="records")
+    return [_sanitize_json_row(row) for row in raw_rows]
+
+
+def _sanitize_json_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {key: _sanitize_json_value(value) for key, value in row.items()}
+
+
+def _sanitize_json_value(value: Any) -> Any:
+    if value is None:
+        return None
+
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+
+    if isinstance(value, dict):
+        return {key: _sanitize_json_value(item) for key, item in value.items()}
+
+    if isinstance(value, list):
+        return [_sanitize_json_value(item) for item in value]
+
+    if pd.isna(value):
+        return None
+
+    return value
 
 
 def save_dataframe_dataset(
@@ -43,7 +70,7 @@ def save_dataframe_dataset(
                 {
                     "dataset": dataset,
                     "row_index": index,
-                    "row_data": json.dumps(row),
+                    "row_data": json.dumps(row, allow_nan=False),
                     "source_path": str(source_path) if source_path is not None else None,
                 }
                 for index, row in enumerate(rows)

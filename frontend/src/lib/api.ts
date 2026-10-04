@@ -2,10 +2,29 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+// Per-browser id for the live tracker, so each visitor picks their own source and
+// race without affecting anyone else. Kept in localStorage when available.
+let memorySession: string | null = null;
+function sessionId(): string {
+  const make = () =>
+    typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `s-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+  try {
+    let id = window.localStorage.getItem("pitwall-session");
+    if (!id) {
+      id = make();
+      window.localStorage.setItem("pitwall-session", id);
+    }
+    return id;
+  } catch {
+    memorySession ??= make();
+    return memorySession;
+  }
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: { "Content-Type": "application/json", "X-Pitwall-Session": sessionId(), ...(init?.headers ?? {}) },
     cache: "no-store",
   });
   if (!res.ok) {

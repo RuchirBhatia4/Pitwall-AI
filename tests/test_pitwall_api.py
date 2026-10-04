@@ -56,3 +56,48 @@ def test_chat_engine_mode_answers_from_tools(monkeypatch):
     j = client.post("/api/chat", json={"messages": [{"role": "user", "content": "When should Verstappen pit tonight?"}]}).json()
     assert "driver_strategy" in j["tools_used"]
     assert "Verstappen" in j["reply"]
+
+
+# ---------------------------------------------------------------------------
+# live tracker: per-visitor sessions
+# ---------------------------------------------------------------------------
+A = {"X-Pitwall-Session": "visitor-aaaa-1111"}
+B = {"X-Pitwall-Session": "visitor-bbbb-2222"}
+
+
+def test_visitors_do_not_switch_each_others_live_source():
+    ra = client.post("/api/live/connect", headers=A, json={"source": "replay", "round": 15, "seconds_per_lap": 60, "start_lap": 10})
+    rb = client.post("/api/live/connect", headers=B, json={"source": "replay", "round": 14, "seconds_per_lap": 60, "start_lap": 30})
+    assert ra.status_code == 200 and rb.status_code == 200
+    # B connecting afterwards must not change A
+    assert client.get("/api/live/status", headers=A).json()["round"] == 15
+    sa = client.get("/api/live/state", headers=A).json()["state"]
+    sb = client.get("/api/live/state", headers=B).json()["state"]
+    assert sa["round"] == 15 and sb["round"] == 14
+    assert sa["laps_completed_leader"] == 10 and sb["laps_completed_leader"] == 30
+
+
+def test_missing_or_invalid_session_header_uses_default_session():
+    fresh = {"X-Pitwall-Session": "visitor-cccc-3333"}
+    assert client.get("/api/live/status", headers=fresh).json()["connected"] is False
+    bad = {"X-Pitwall-Session": "x"}  # too short: treated as the default session
+    client.post("/api/live/connect", json={"source": "replay", "round": 13, "start_lap": 5})
+    assert client.get("/api/live/status", headers=bad).json()["round"] == 13
+
+
+def test_live_timing_only_for_current_round():
+    r = client.post("/api/live/connect", headers=A, json={"source": "signalr", "round": 3})
+    assert r.status_code == 400
+    # A's existing replay selection is untouched by the rejected request
+    assert client.get("/api/live/status", headers=A).json()["round"] == 15
+
+
+def test_chat_live_answer_follows_its_own_session(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    client.post("/api/live/connect", headers=A, json={"source": "replay", "round": 15, "seconds_per_lap": 60, "start_lap": 10})
+    q = {"messages": [{"role": "user", "content": "Should Russell box now?"}]}
+    a = client.post("/api/chat", headers=A, json=q).json()
+    other = client.post("/api/chat", headers={"X-Pitwall-Session": "visitor-dddd-4444"}, json=q).json()
+    assert a["reply"].startswith("Lap ")  # live call from A's own replay
+    assert not other["reply"].startswith("Lap ")  # an unconnected visitor gets the pre-race plan instead

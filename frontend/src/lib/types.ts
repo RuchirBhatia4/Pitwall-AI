@@ -333,6 +333,8 @@ export interface LiveStatus {
   round: number | null;
   error: string | null;
   last_update_age: number | null;
+  shared_feed?: boolean;
+  viewers?: number;
   openf1_credentials: boolean;
   f1tv_token: boolean;
 }

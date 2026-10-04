@@ -4,13 +4,15 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
+from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Literal
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from src.pitwall.live_engine import analyse
@@ -130,73 +132,167 @@ def replay(rnd: int, lap: int, driver: str) -> dict:
 # ---------------------------------------------------------------------------
 # live
 # ---------------------------------------------------------------------------
-class LiveManager:
-    def __init__(self) -> None:
-        self.kind: str | None = None
-        self.round: int | None = None
-        self.source = None
-        self.error: str | None = None
+# Live tracking is per visitor: every browser sends a random session id
+# (X-Pitwall-Session). A session only *chooses* what to watch; real live feeds
+# (F1 live timing, OpenF1) are shared, read-only and keyed by race, so one
+# visitor can never switch what another visitor sees.
+SESSION_HEADER = "X-Pitwall-Session"
+MAX_SESSIONS = 2000
+SESSION_TTL_S = 6 * 3600
+MAX_FEEDS = 3
+FEED_IDLE_STOP_S = 20 * 60  # stop a shared feed nobody has read for 20 minutes
+STATE_CACHE_S = 3.0
+_SID_RE = re.compile(r"^[A-Za-z0-9-]{8,64}$")
+
+
+def session_id(raw: str | None) -> str:
+    return raw if raw and _SID_RE.match(raw) else "default"
+
+
+class Feed:
+    """One shared live data source (F1 live timing or OpenF1) for one race."""
+
+    def __init__(self, kind: str, rnd: int, source) -> None:
+        self.kind, self.round, self.source = kind, rnd, source
+        self.lock = threading.Lock()
         self.last_state: dict | None = None
         self.last_ok: float | None = None
-        self.replay_t0: float | None = None
-        self.replay_start_lap = 1
-        self.seconds_per_lap = 8.0
-        self.lock = threading.Lock()
+        self.error: str | None = None
+        self.last_read = time.time()
         self._cache_t = 0.0
 
-    def connect(self, kind: str, rnd: int, seconds_per_lap: float = 8.0, start_lap: int = 1, no_auth: bool = False) -> None:
-        from src.pitwall.live_sources import OpenF1Source, SignalRSource
-
-        w = weekend_for(rnd)
-        with self.lock:
-            if self.source is not None and hasattr(self.source, "stop"):
-                self.source.stop()  # never leave two live-timing connections open
-            self.kind, self.round, self.error, self.last_state = kind, rnd, None, None
-            if kind == "openf1":
-                self.source = OpenF1Source(rnd, total_laps=w["total_laps"])
-            elif kind == "signalr":
-                rec = str(SEASON_DIR / f"live_r{rnd:02d}_{int(time.time())}.txt")
-                self.source = SignalRSource(rnd, w["total_laps"], record_path=rec, no_auth=no_auth)
-            elif kind == "replay":
-                self.source = _replay(rnd)
-                self.replay_t0, self.replay_start_lap, self.seconds_per_lap = time.time(), start_lap, seconds_per_lap
-            else:
-                raise ValueError(kind)
-
     def state(self) -> dict:
-        if self.source is None:
-            raise HTTPException(409, "Live tracker not connected. POST /api/live/connect first.")
         with self.lock:
-            if self.last_state and time.time() - self._cache_t < 3:
+            self.last_read = time.time()
+            if self.last_state and time.time() - self._cache_t < STATE_CACHE_S:
                 return self.last_state
             try:
-                if self.kind == "replay":
-                    lap = self.replay_start_lap + int((time.time() - self.replay_t0) / self.seconds_per_lap)
-                    st = self.source.state(min(lap, self.source.total_laps))
-                    st["source"] = "replay-live"
-                else:
-                    st = self.source.state()
+                st = self.source.state()
                 self.last_state, self.last_ok, self.error, self._cache_t = st, time.time(), None, time.time()
             except Exception as exc:
                 self.error = f"{type(exc).__name__}: {exc}"
-                log.warning("live source error: %s", self.error)
+                log.warning("live feed %s/R%s error: %s", self.kind, self.round, self.error)
                 if self.last_state is None:
                     raise HTTPException(502, self.error) from exc
             return self.last_state
 
-    def status(self) -> dict:
+    def stop(self) -> None:
+        if hasattr(self.source, "stop"):
+            self.source.stop()
+
+
+@dataclass
+class LiveSession:
+    kind: str | None = None
+    round: int | None = None
+    replay_t0: float = 0.0
+    replay_start_lap: int = 1
+    seconds_per_lap: float = 8.0
+    last_seen: float = field(default_factory=time.time)
+
+
+class LiveManager:
+    def __init__(self) -> None:
+        self.sessions: dict[str, LiveSession] = {}
+        self.feeds: dict[tuple[str, int], Feed] = {}
+        self.lock = threading.Lock()
+
+    # -- bookkeeping ------------------------------------------------------
+    def _gc(self) -> None:
+        now = time.time()
+        for sid, s in list(self.sessions.items()):
+            if now - s.last_seen > SESSION_TTL_S:
+                del self.sessions[sid]
+        for key, f in list(self.feeds.items()):
+            if now - f.last_read > FEED_IDLE_STOP_S:
+                f.stop()
+                del self.feeds[key]
+
+    def session(self, sid: str) -> LiveSession:
+        with self.lock:
+            self._gc()
+            s = self.sessions.get(sid)
+            if s is None:
+                if len(self.sessions) >= MAX_SESSIONS:
+                    oldest = min(self.sessions, key=lambda k: self.sessions[k].last_seen)
+                    del self.sessions[oldest]
+                s = self.sessions[sid] = LiveSession()
+            s.last_seen = time.time()
+            return s
+
+    def _feed(self, kind: str, rnd: int, no_auth: bool = False) -> Feed:
+        from src.pitwall.live_sources import OpenF1Source, SignalRSource
+
+        key = (kind, rnd)
+        with self.lock:
+            if key in self.feeds:
+                return self.feeds[key]
+            if len(self.feeds) >= MAX_FEEDS:
+                idle = min(self.feeds.values(), key=lambda f: f.last_read)
+                if time.time() - idle.last_read < 60:
+                    raise HTTPException(429, "Too many live feeds are open right now; try again in a minute.")
+                idle.stop()
+                del self.feeds[(idle.kind, idle.round)]
+            w = weekend_for(rnd)
+            if kind == "openf1":
+                source = OpenF1Source(rnd, total_laps=w["total_laps"])
+            else:
+                rec = str(SEASON_DIR / f"live_r{rnd:02d}_{int(time.time())}.txt")
+                source = SignalRSource(rnd, w["total_laps"], record_path=rec, no_auth=no_auth)
+            feed = self.feeds[key] = Feed(kind, rnd, source)
+            return feed
+
+    # -- per-visitor API ---------------------------------------------------
+    def connect(self, sid: str, kind: str, rnd: int, seconds_per_lap: float = 8.0, start_lap: int = 1, no_auth: bool = False) -> None:
+        weekend_for(rnd)  # 404 for rounds that have not been built
+        if kind == "signalr":
+            # F1 live timing streams whatever session is on air, so it can only
+            # be paired with the current race weekend's model.
+            season = _season()
+            current = season.get("live_round") or season.get("next_round")
+            if rnd != current:
+                raise HTTPException(400, f"F1 live timing only carries the current session (round {current}). Use Replay or OpenF1 for other races.")
+        s = self.session(sid)
+        if kind in ("openf1", "signalr"):
+            self._feed(kind, rnd, no_auth)
+        elif kind == "replay":
+            _replay(rnd)
+            s.replay_t0, s.replay_start_lap, s.seconds_per_lap = time.time(), start_lap, seconds_per_lap
+        else:
+            raise ValueError(kind)
+        s.kind, s.round = kind, rnd
+
+    def state(self, sid: str) -> dict:
+        s = self.session(sid)
+        if s.kind is None or s.round is None:
+            raise HTTPException(409, "Live tracker not connected. POST /api/live/connect first.")
+        if s.kind == "replay":
+            src = _replay(s.round)
+            lap = s.replay_start_lap + int((time.time() - s.replay_t0) / s.seconds_per_lap)
+            st = src.state(min(lap, src.total_laps))
+            st["source"] = "replay-live"
+            return st
+        feed = self.feeds.get((s.kind, s.round)) or self._feed(s.kind, s.round)
+        return feed.state()
+
+    def status(self, sid: str) -> dict:
         from fastf1.internals import f1auth
 
+        s = self.session(sid)
+        feed = self.feeds.get((s.kind, s.round)) if s.kind in ("openf1", "signalr") else None
         try:
             f1tv = bool(f1auth.AUTH_DATA_FILE.read_text().strip())
         except Exception:
             f1tv = False
+        viewers = sum(1 for x in self.sessions.values() if x.kind == s.kind and x.round == s.round) if s.kind else 0
         return {
-            "connected": self.source is not None,
-            "source": self.kind,
-            "round": self.round,
-            "error": self.error or getattr(self.source, "error", None),
-            "last_update_age": round(time.time() - self.last_ok, 1) if self.last_ok else None,
+            "connected": s.kind is not None,
+            "source": s.kind,
+            "round": s.round,
+            "error": (feed.error or getattr(feed.source, "error", None)) if feed else None,
+            "last_update_age": round(time.time() - feed.last_ok, 1) if feed and feed.last_ok else None,
+            "shared_feed": feed is not None,
+            "viewers": viewers,
             "openf1_credentials": bool(os.environ.get("OPENF1_USERNAME") or os.environ.get("OPENF1_TOKEN")),
             "f1tv_token": f1tv,
         }
@@ -214,25 +310,27 @@ class ConnectRequest(BaseModel):
 
 
 @router.post("/live/connect")
-def live_connect(req: ConnectRequest) -> dict:
+def live_connect(req: ConnectRequest, x_pitwall_session: str | None = Header(default=None)) -> dict:
+    sid = session_id(x_pitwall_session)
     try:
-        LIVE.connect(req.source, req.round, req.seconds_per_lap, req.start_lap, req.no_auth)
+        LIVE.connect(sid, req.source, req.round, req.seconds_per_lap, req.start_lap, req.no_auth)
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(502, f"{type(exc).__name__}: {exc}") from exc
-    return LIVE.status()
+    return LIVE.status(sid)
 
 
 @router.get("/live/status")
-def live_status() -> dict:
-    return LIVE.status()
+def live_status(x_pitwall_session: str | None = Header(default=None)) -> dict:
+    return LIVE.status(session_id(x_pitwall_session))
 
 
 @router.get("/live/state")
-def live_state(driver: str | None = None) -> dict:
-    state = LIVE.state()
-    out = {"state": _slim(state), "status": LIVE.status()}
+def live_state(driver: str | None = None, x_pitwall_session: str | None = Header(default=None)) -> dict:
+    sid = session_id(x_pitwall_session)
+    state = LIVE.state(sid)
+    out = {"state": _slim(state), "status": LIVE.status(sid)}
     if driver:
         out["analysis"] = analyse(state, weekend_for(state["round"]), driver.upper())
     return out
@@ -288,7 +386,7 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/chat")
-def chat_endpoint(req: ChatRequest) -> dict:
+def chat_endpoint(req: ChatRequest, x_pitwall_session: str | None = Header(default=None)) -> dict:
     from src.pitwall.chat import chat
 
-    return chat([m.model_dump() for m in req.messages], req.context)
+    return chat([m.model_dump() for m in req.messages], req.context | {"session": session_id(x_pitwall_session)})

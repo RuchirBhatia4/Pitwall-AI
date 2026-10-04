@@ -483,7 +483,9 @@ export default function LivePage() {
         right={
           <span className={clsx("flex items-center gap-1.5 text-sm", connected && !status?.error ? "text-good" : "text-text-3")}>
             {connected ? <Wifi size={15} /> : <WifiOff size={15} />}
-            {connected ? `${status?.source} · R${status?.round}${status?.last_update_age != null ? ` · updated ${status.last_update_age}s ago` : ""}` : "not connected"}
+            {connected
+              ? `${status?.source} · R${status?.round}${status?.last_update_age != null ? ` · updated ${status.last_update_age}s ago` : ""}${status?.shared_feed && (status?.viewers ?? 0) > 1 ? ` · ${status.viewers} watching` : ""}`
+              : "not connected"}
           </span>
         }
       >

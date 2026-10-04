@@ -10,6 +10,7 @@ Two modes:
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
@@ -22,6 +23,8 @@ from src.pitwall.tyre_model import TyreModel
 
 log = logging.getLogger("pitwall.chat")
 _round = round  # tool parameters are named `round`, which shadows the builtin
+# Visitor session for the live tracker, set per chat request.
+_SESSION: contextvars.ContextVar[str] = contextvars.ContextVar("pitwall_session", default="default")
 MODEL = os.environ.get("PITWALL_CHAT_MODEL", "claude-opus-5-5")
 MAX_TOOL_ROUNDS = 8
 
@@ -201,9 +204,10 @@ def tool_live_call(driver: str) -> dict:
     from src.pitwall.api import LIVE, weekend_for
     from src.pitwall.live_engine import analyse
 
-    if LIVE.source is None:
+    sid = _SESSION.get()
+    if LIVE.session(sid).kind is None:
         return {"error": "The live tracker is not connected. Connect a source on the Live pit wall page first."}
-    st = LIVE.state()
+    st = LIVE.state(sid)
     code = driver.strip().upper()
     if not any(c["driver"] == code for c in st["cars"]):
         surname = {c["driver"]: c["driver"] for c in st["cars"]}
@@ -416,6 +420,7 @@ def chat_engine(messages: list[dict], context: dict) -> dict:
 
 def chat(messages: list[dict], context: dict) -> dict:
     global _llm_down_until
+    _SESSION.set(context.get("session") or "default")
     if llm_enabled():
         import anthropic
 

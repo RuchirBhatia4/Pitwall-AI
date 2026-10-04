@@ -2,17 +2,23 @@ services:
   - type: web
     name: pitwall-ai-api
     runtime: python
-    plan: starter
+    # 0.5 CPU / 512 MB: the API peaks at ~0.3 GB. The free plan (0.1 CPU) is too
+    # slow for per-lap live calls and sleeps when idle.
+    plan: 0.5c-512mb
+    region: virginia  # next to Vercel's default region (iad1), which proxies /api here
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn src.api.main:app --host 0.0.0.0 --port $PORT
+    # One worker on purpose: the live tracker keeps its connection in-process.
+    startCommand: uvicorn src.api.main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /health
+    autoDeployTrigger: commit
     envVars:
       - key: PITWALL_STORAGE_BACKEND
-        value: database
-      - key: DATABASE_URL
-        sync: false
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
+        value: csv
       - key: CORS_ALLOW_ORIGIN_REGEX
         value: https://.*\.vercel\.app
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENF1_USERNAME
+        sync: false
+      - key: OPENF1_PASSWORD
+        sync: false

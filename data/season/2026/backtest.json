@@ -1,0 +1,38 @@
+{
+ "scope": "dry 2026 races from round 4 onward, classified finishers, walk-forward (no future data)",
+ "driver_races": 173,
+ "stops_accuracy": 0.3352601156069364,
+ "compound_set_accuracy": 0.3815028901734104,
+ "start_compound_accuracy": 0.3815028901734104,
+ "first_stop_mae": 9.16184971098266,
+ "window_coverage": 0.5260115606936416,
+ "conformal_coverage": 0.8497109826589595,
+ "conformal_target": 0.8,
+ "baseline": {
+  "description": "most common strategy of earlier dry 2026 races, median first-stop fraction",
+  "stops_accuracy": 0.2774566473988439,
+  "compound_set_accuracy": 0.3815028901734104,
+  "start_compound_accuracy": 0.6416184971098265,
+  "first_stop_mae": 10.283236994219653
+ },
+ "hybrid": {
+  "description": "physics optimiser + walk-forward behaviour classifier (logistic regression on physics features)",
+  "driver_races": 173,
+  "stops_accuracy": 0.28901734104046245,
+  "compound_set_accuracy": 0.4393063583815029,
+  "start_compound_accuracy": 0.5895953757225434,
+  "first_stop_mae": 11.00578034682081,
+  "physics_on_same_rows": {
+   "stops_accuracy": 0.3352601156069364,
+   "compound_set_accuracy": 0.3815028901734104,
+   "start_compound_accuracy": 0.3815028901734104,
+   "first_stop_mae": 9.16184971098266
+  },
+  "baseline_on_same_rows": {
+   "stops_accuracy": 0.2774566473988439,
+   "compound_set_accuracy": 0.3815028901734104,
+   "start_compound_accuracy": 0.6416184971098265,
+   "first_stop_mae": 10.283236994219653
+  }
+ }
+}

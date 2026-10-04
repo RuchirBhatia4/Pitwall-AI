@@ -1,107 +1,49 @@
-# PitWall AI Live Deployment
+# Deploying PitWall AI
 
-This setup uses:
-- Supabase for hosted Postgres storage.
-- Render for the FastAPI backend.
-- Vercel for the React/Vite frontend.
+Two services:
 
-## 1. Create Supabase Project
+- **API** – FastAPI (`src/api/main.py`) on Render (or any Python host).
+- **Frontend** – Next.js (`frontend/`) on Vercel.
 
-1. Create a Supabase project.
-2. Open the SQL editor.
-3. Run `migrations/001_live_storage.sql`.
-4. Copy the project database connection string.
+The API serves the pre-built JSON in `data/season/2026/` (committed), so it does not need the multi-GB FastF1 cache. Replays and the live tracker fetch what they need on demand.
 
-Use the connection string in pooler/direct Postgres form as `DATABASE_URL`.
+## 1. API on Render
 
-## 2. Configure Backend On Render
+`render.yaml` is a Render Blueprint for the API service:
 
-Create a Render Web Service from this repository.
+- Plan `0.5c-512mb` (0.5 CPU / 512 MB; the API peaks at ~0.3 GB). The free plan's 0.1 CPU is too slow for live per-lap calls and it sleeps when idle.
+- Region `virginia`, next to Vercel's default region, which proxies `/api` to it.
+- Python 3.11 via `.python-version` (Render's default is newer than the pinned scientific stack supports).
+- Build `pip install -r requirements.txt` (versions pinned), start `uvicorn src.api.main:app --host 0.0.0.0 --port $PORT --workers 1`. Keep **one worker**: the live tracker holds its connection in-process.
+- Health check `/health`; redeploys on every push to the selected branch.
 
-Settings:
-- Runtime: Python
-- Build command: `pip install -r requirements.txt`
-- Start command: `uvicorn src.api.main:app --host 0.0.0.0 --port $PORT`
+Steps (Render dashboard):
 
-Environment variables:
+1. **New → Blueprint**, connect the GitHub repo, pick the branch (`pitwall-strategy-engine` until the PR is merged, then `main`).
+2. Fill the prompted optional secrets or leave them empty: `ANTHROPIC_API_KEY` (LLM chat), `OPENF1_USERNAME` / `OPENF1_PASSWORD` (OpenF1 live source).
+3. Apply. When the deploy is live, check `https://<service>.onrender.com/health` and `/api/season`.
 
-```bash
-PITWALL_STORAGE_BACKEND=database
-DATABASE_URL=your_supabase_postgres_connection_string
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-```
+For an F1TV-authenticated live feed, run `python -m src.pitwall.f1tv_login` in the service shell (the token is stored by FastF1 in the user data directory). Without it the public feed is used.
 
-After deploy, verify:
+## 2. Frontend on Vercel
 
-```text
-https://your-render-service.onrender.com/health
-https://your-render-service.onrender.com/api/storage/status
-```
+- Root directory: `frontend`
+- Framework preset: Next.js (build `next build`)
+- Env: `PITWALL_API_URL=https://<service>.onrender.com`
 
-## 3. Seed Current Outputs Into Supabase
+The frontend proxies `/api/*` to `PITWALL_API_URL` through Next.js rewrites, so the browser never calls the API cross-origin.
 
-After the backend is deployed and `PITWALL_STORAGE_BACKEND=database`, call:
+## 3. Updating after each race
 
 ```bash
-curl -X POST https://your-render-service.onrender.com/api/storage/sync-current-outputs
+python -m src.pitwall.prefetch       # new sessions into the FastF1 cache
+python -m src.pitwall.build_season   # rebuild rounds, backtest, hybrid model
+git add data/season/2026 && git commit -m "Add round N" && git push
 ```
 
-This copies the current generated CSV outputs into Supabase-backed app storage.
-
-## 4. Configure Frontend On Vercel
-
-Create a Vercel project from the `frontend/` directory.
-
-Settings:
-- Framework: Vite
-- Build command: `npm run build`
-- Output directory: `dist`
-
-Environment variable:
+## Local development
 
 ```bash
-VITE_API_BASE_URL=https://your-render-service.onrender.com
-```
-
-## 5. Custom Domain
-
-Attach your domain to the Vercel frontend project.
-
-Recommended shape:
-
-```text
-https://pitwall-ai.com        -> Vercel frontend
-https://api.pitwall-ai.com    -> Render backend, optional
-```
-
-If you use an API subdomain, update:
-
-```bash
-VITE_API_BASE_URL=https://api.pitwall-ai.com
-```
-
-## 6. Local Development Modes
-
-CSV mode:
-
-```bash
-PITWALL_STORAGE_BACKEND=csv
-uvicorn src.api.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-Database mode:
-
-```bash
-PITWALL_STORAGE_BACKEND=database
-DATABASE_URL=your_supabase_postgres_connection_string
-uvicorn src.api.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-Frontend:
-
-```bash
-cd frontend
-npm install
-npm run dev
+uvicorn src.api.main:app --reload --host 127.0.0.1 --port 8010
+cd frontend && npm run dev
 ```

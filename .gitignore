@@ -31,3 +31,7 @@ temp/
 # Frontend
 frontend/node_modules/
 frontend/dist/
+
+# PitWall runtime logs and raw live-timing recordings
+data/season/*.log
+data/season/live_*.txt

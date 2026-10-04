@@ -1,4 +1,12 @@
-# PitWall AI — Codex Project Context
+# Degradation model notes (original pipeline)
+
+These notes document the first version of PitWall AI: an XGBoost/LightGBM tyre-degradation
+model with a future-race holdout. They are kept because they explain *why* the current strategy
+engine (`src/pitwall/`, see the README) is evaluated walk-forward only: the random-split model
+looked strong (R² ≈ 0.66) but did not generalise to an unseen race (R² < 0).
+
+To work on the current engine: rebuild with `python -m src.pitwall.build_season`, run the API on
+port 8010, and evaluate only walk-forward (round R predicted from rounds < R).
 
 ## Project overview
 
@@ -136,7 +144,7 @@ From 2026 Japan holdout error analysis, the model struggles most with:
 
 This indicates that historical-only data is missing current-weekend setup and practice race-pace information.
 
-## Next intended step
+## Next intended step (at the time; since implemented in src/pitwall/)
 
 Build practice race-pace calibration.
 
@@ -214,7 +222,7 @@ python -m src.models.predict_degradation_curves
 Run MLflow UI:
 mlflow ui --host 127.0.0.1 --port 5000
 
-## Development rules for Codex
+## Development rules
 
 1. Do not delete working experiment files unless explicitly asked.
 2. Do not remove MLflow logging.

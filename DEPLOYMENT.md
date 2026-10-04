@@ -1,107 +1,47 @@
-# PitWall AI Live Deployment
+# Deploying PitWall AI
 
-This setup uses:
-- Supabase for hosted Postgres storage.
-- Render for the FastAPI backend.
-- Vercel for the React/Vite frontend.
+Two services:
 
-## 1. Create Supabase Project
+- **API** – FastAPI (`src/api/main.py`) on Render (or any Python host).
+- **Frontend** – Next.js (`frontend/`) on Vercel.
 
-1. Create a Supabase project.
-2. Open the SQL editor.
-3. Run `migrations/001_live_storage.sql`.
-4. Copy the project database connection string.
+The API serves the pre-built JSON in `data/season/2026/` (committed), so it does not need the multi-GB FastF1 cache. Replays and the live tracker fetch what they need on demand.
 
-Use the connection string in pooler/direct Postgres form as `DATABASE_URL`.
+## 1. API on Render
 
-## 2. Configure Backend On Render
+`render.yaml` defines the service. Settings:
 
-Create a Render Web Service from this repository.
+- Build: `pip install -r requirements.txt`
+- Start: `uvicorn src.api.main:app --host 0.0.0.0 --port $PORT`
+- Env:
+  - `CORS_ALLOW_ORIGIN_REGEX=https://.*\.vercel\.app` (and/or `CORS_ALLOW_ORIGINS` with your domain)
+  - `ANTHROPIC_API_KEY` – optional, enables LLM answers in the chat (`PITWALL_CHAT_MODEL` to override the model)
+  - `OPENF1_USERNAME` / `OPENF1_PASSWORD` – optional, OpenF1 live source
+  - `PITWALL_STORAGE_BACKEND`, `DATABASE_URL`, `SUPABASE_*` – only for the legacy CSV/Supabase endpoints
 
-Settings:
-- Runtime: Python
-- Build command: `pip install -r requirements.txt`
-- Start command: `uvicorn src.api.main:app --host 0.0.0.0 --port $PORT`
+Check `https://<service>.onrender.com/health` and `/api/season`.
 
-Environment variables:
+The F1 live-timing source keeps a websocket open from the API process; use an instance type that is not put to sleep during a race. For an F1TV-authenticated feed, run `python -m src.pitwall.f1tv_login` where the API runs (the token is stored by FastF1 in the user data directory).
 
-```bash
-PITWALL_STORAGE_BACKEND=database
-DATABASE_URL=your_supabase_postgres_connection_string
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-```
+## 2. Frontend on Vercel
 
-After deploy, verify:
+- Root directory: `frontend`
+- Framework preset: Next.js (build `next build`)
+- Env: `PITWALL_API_URL=https://<service>.onrender.com`
 
-```text
-https://your-render-service.onrender.com/health
-https://your-render-service.onrender.com/api/storage/status
-```
+The frontend proxies `/api/*` to `PITWALL_API_URL` through Next.js rewrites, so the browser never calls the API cross-origin.
 
-## 3. Seed Current Outputs Into Supabase
-
-After the backend is deployed and `PITWALL_STORAGE_BACKEND=database`, call:
+## 3. Updating after each race
 
 ```bash
-curl -X POST https://your-render-service.onrender.com/api/storage/sync-current-outputs
+python -m src.pitwall.prefetch       # new sessions into the FastF1 cache
+python -m src.pitwall.build_season   # rebuild rounds, backtest, hybrid model
+git add data/season/2026 && git commit -m "Add round N" && git push
 ```
 
-This copies the current generated CSV outputs into Supabase-backed app storage.
-
-## 4. Configure Frontend On Vercel
-
-Create a Vercel project from the `frontend/` directory.
-
-Settings:
-- Framework: Vite
-- Build command: `npm run build`
-- Output directory: `dist`
-
-Environment variable:
+## Local development
 
 ```bash
-VITE_API_BASE_URL=https://your-render-service.onrender.com
-```
-
-## 5. Custom Domain
-
-Attach your domain to the Vercel frontend project.
-
-Recommended shape:
-
-```text
-https://pitwall-ai.com        -> Vercel frontend
-https://api.pitwall-ai.com    -> Render backend, optional
-```
-
-If you use an API subdomain, update:
-
-```bash
-VITE_API_BASE_URL=https://api.pitwall-ai.com
-```
-
-## 6. Local Development Modes
-
-CSV mode:
-
-```bash
-PITWALL_STORAGE_BACKEND=csv
-uvicorn src.api.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-Database mode:
-
-```bash
-PITWALL_STORAGE_BACKEND=database
-DATABASE_URL=your_supabase_postgres_connection_string
-uvicorn src.api.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-Frontend:
-
-```bash
-cd frontend
-npm install
-npm run dev
+uvicorn src.api.main:app --reload --host 127.0.0.1 --port 8010
+cd frontend && npm run dev
 ```

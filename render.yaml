@@ -5,14 +5,17 @@ services:
     plan: starter
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn src.api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
     envVars:
-      - key: PITWALL_STORAGE_BACKEND
-        value: database
-      - key: DATABASE_URL
-        sync: false
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
       - key: CORS_ALLOW_ORIGIN_REGEX
         value: https://.*\.vercel\.app
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENF1_USERNAME
+        sync: false
+      - key: OPENF1_PASSWORD
+        sync: false
+      - key: PITWALL_STORAGE_BACKEND
+        value: csv
+      - key: DATABASE_URL
+        sync: false

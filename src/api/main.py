@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.settings import get_settings
+from src.pitwall.api import router as pitwall_router
 from src.api.schemas import (
     DashboardSummary,
     GenerateCalibratedRequest,
@@ -30,7 +31,7 @@ from src.api.services import (
 
 app = FastAPI(
     title="PitWall AI API",
-    version="0.1.0",
+    version="0.2.0",
     description="Backend API for degradation calibration and race strategy workflows.",
 )
 
@@ -44,6 +45,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+app.include_router(pitwall_router)
 
 
 def _raise_http_error(exc: Exception) -> None:

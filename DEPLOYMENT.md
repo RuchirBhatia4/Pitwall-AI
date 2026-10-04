@@ -9,19 +9,21 @@ The API serves the pre-built JSON in `data/season/2026/` (committed), so it does
 
 ## 1. API on Render
 
-`render.yaml` defines the service. Settings:
+`render.yaml` is a Render Blueprint for the API service:
 
-- Build: `pip install -r requirements.txt`
-- Start: `uvicorn src.api.main:app --host 0.0.0.0 --port $PORT`
-- Env:
-  - `CORS_ALLOW_ORIGIN_REGEX=https://.*\.vercel\.app` (and/or `CORS_ALLOW_ORIGINS` with your domain)
-  - `ANTHROPIC_API_KEY` – optional, enables LLM answers in the chat (`PITWALL_CHAT_MODEL` to override the model)
-  - `OPENF1_USERNAME` / `OPENF1_PASSWORD` – optional, OpenF1 live source
-  - `PITWALL_STORAGE_BACKEND`, `DATABASE_URL`, `SUPABASE_*` – only for the legacy CSV/Supabase endpoints
+- Plan `0.5c-512mb` (0.5 CPU / 512 MB; the API peaks at ~0.3 GB). The free plan's 0.1 CPU is too slow for live per-lap calls and it sleeps when idle.
+- Region `virginia`, next to Vercel's default region, which proxies `/api` to it.
+- Python 3.11 via `.python-version` (Render's default is newer than the pinned scientific stack supports).
+- Build `pip install -r requirements.txt` (versions pinned), start `uvicorn src.api.main:app --host 0.0.0.0 --port $PORT --workers 1`. Keep **one worker**: the live tracker holds its connection in-process.
+- Health check `/health`; redeploys on every push to the selected branch.
 
-Check `https://<service>.onrender.com/health` and `/api/season`.
+Steps (Render dashboard):
 
-The F1 live-timing source keeps a websocket open from the API process; use an instance type that is not put to sleep during a race. For an F1TV-authenticated feed, run `python -m src.pitwall.f1tv_login` where the API runs (the token is stored by FastF1 in the user data directory).
+1. **New → Blueprint**, connect the GitHub repo, pick the branch (`pitwall-strategy-engine` until the PR is merged, then `main`).
+2. Fill the prompted optional secrets or leave them empty: `ANTHROPIC_API_KEY` (LLM chat), `OPENF1_USERNAME` / `OPENF1_PASSWORD` (OpenF1 live source).
+3. Apply. When the deploy is live, check `https://<service>.onrender.com/health` and `/api/season`.
+
+For an F1TV-authenticated live feed, run `python -m src.pitwall.f1tv_login` in the service shell (the token is stored by FastF1 in the user data directory). Without it the public feed is used.
 
 ## 2. Frontend on Vercel
 

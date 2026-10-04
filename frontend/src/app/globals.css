@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+/* Pit-wall theme. Dark-first like a team's timing screens. */
+:root {
+  --bg: #07080b;
+  --surface: #0e1015;
+  --surface-2: #151821;
+  --surface-3: #1d2130;
+  --line: #232838;
+  --line-strong: #2f3549;
+  --text: #f2f4f8;
+  --text-2: #a9b0c2;
+  --text-3: #6b7387;
+  --accent: #e10600;
+  --accent-soft: rgba(225, 6, 0, 0.14);
+  --good: #22c55e;
+  --warn: #f5a524;
+  --bad: #ef4444;
+  --info: #3b82f6;
+  /* Official Pirelli compound colours (domain convention; always paired with a letter). */
+  --soft: #e8002d;
+  --medium: #ffd12e;
+  --hard: #ededed;
+  --inter: #43b02a;
+  --wet: #0067ad;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-accent: var(--accent);
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-info: var(--info);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  font-weight: 600;
+}
+
+.grid-bg {
+  background-image: linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at top, black 20%, transparent 70%);
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.live-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+::selection {
+  background: var(--accent-soft);
+}

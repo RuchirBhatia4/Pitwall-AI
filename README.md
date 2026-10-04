@@ -2,6 +2,15 @@
 
 **A Formula 1 race-strategy engine and live pit-wall tracker for the 2026 season.** Tyre-degradation modelling with quantified uncertainty, exact strategy optimisation, Monte Carlo risk, a hybrid physics + ML model of team behaviour, and a live tracker that makes the pit call for any driver during a race.
 
+### ▶ Live site: **[pitwall-ai-f1.vercel.app](https://pitwall-ai-f1.vercel.app)**
+
+| | |
+|---|---|
+| Season & strategy predictor | [pitwall-ai-f1.vercel.app](https://pitwall-ai-f1.vercel.app) |
+| Live pit wall | [pitwall-ai-f1.vercel.app/live](https://pitwall-ai-f1.vercel.app/live) |
+| Method & validation | [pitwall-ai-f1.vercel.app/methodology](https://pitwall-ai-f1.vercel.app/methodology) |
+| API (FastAPI) | [pitwall-ai-2i89.onrender.com/health](https://pitwall-ai-2i89.onrender.com/health) |
+
 Next.js frontend · FastAPI backend · FastF1 / F1 live timing / OpenF1 data · validated walk-forward on every 2026 race.
 
 ---
@@ -97,7 +106,8 @@ Next.js 16 needs Node ≥ 20.9.
 
 ### Race day
 
-1. Open **Live pit wall** → **F1 live timing (free)** → round → **Connect**. It auto-reconnects and records the raw feed to `data/season/live_rXX_*.txt`.
+1. Open **[Live pit wall](https://pitwall-ai-f1.vercel.app/live)** (or `localhost:3000/live`) → **F1 live timing (free)** → **Connect**. It auto-reconnects and records the raw feed to `data/season/live_rXX_*.txt`.
+   Each visitor has their own session (source, race, replay clock); real live feeds are shared read-only per race, so nobody can switch what someone else is watching.
 2. Optional: `python -m src.pitwall.f1tv_login` once to use your F1TV subscription for the authenticated feed; or set `OPENF1_USERNAME`/`OPENF1_PASSWORD` (OpenF1 sponsor tier) and pick **OpenF1**.
 3. Pick a driver. If a feed fails, **Manual input** always works (lap, tyre, age, gaps from the TV graphics).
 4. After the race: `python -m src.pitwall.build_season` adds it to the season and the backtest.

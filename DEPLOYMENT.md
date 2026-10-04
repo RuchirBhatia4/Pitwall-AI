@@ -1,5 +1,7 @@
 # Deploying PitWall AI
 
+Live: frontend **https://pitwall-ai-f1.vercel.app** (Vercel, production branch `main`), API **https://pitwall-ai-2i89.onrender.com** (Render, `0.5c-512mb`, branch `main`). Both redeploy automatically on every push to `main`.
+
 Two services:
 
 - **API** – FastAPI (`src/api/main.py`) on Render (or any Python host).
@@ -14,7 +16,7 @@ The API serves the pre-built JSON in `data/season/2026/` (committed), so it does
 - Plan `0.5c-512mb` (0.5 CPU / 512 MB; the API peaks at ~0.3 GB). The free plan's 0.1 CPU is too slow for live per-lap calls and it sleeps when idle.
 - Region `virginia`, next to Vercel's default region, which proxies `/api` to it.
 - Python 3.11 via `.python-version` (Render's default is newer than the pinned scientific stack supports).
-- Build `pip install -r requirements.txt` (versions pinned), start `uvicorn src.api.main:app --host 0.0.0.0 --port $PORT --workers 1`. Keep **one worker**: the live tracker holds its connection in-process.
+- Build `pip install -r requirements.txt` (versions pinned), start `uvicorn src.api.main:app --host 0.0.0.0 --port $PORT --workers 1`. Keep **one worker**: the live tracker holds its connections in-process. Each browser sends an `X-Pitwall-Session` id; sessions choose what to watch, while F1 live timing / OpenF1 feeds are shared per race (max 3, stopped after 20 idle minutes).
 - Health check `/health`; redeploys on every push to the selected branch.
 
 Steps (Render dashboard):

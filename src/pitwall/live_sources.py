@@ -96,6 +96,14 @@ class ReplaySource:
         self.leader_end = dict(zip(leader["lap"], leader["lap_end"]))
         self.ts = self.session.track_status
         self.rcm = self.session.race_control_messages
+        self.wx = self.session.weather_data if self.session.weather_data is not None and len(self.session.weather_data) else None
+        self.rain_laps: set[int] = set()
+        if self.wx is not None:
+            ends = sorted(self.leader_end.items())
+            for t in self.wx.loc[self.wx["Rainfall"].astype(bool), "Time"].dt.total_seconds():
+                lap = next((l for l, e in ends if e >= t), None)
+                if lap is not None:
+                    self.rain_laps.add(int(lap))
 
     def state(self, lap: int) -> dict:
         lap = int(np.clip(lap, 1, self.total_laps))
@@ -176,8 +184,18 @@ class ReplaySource:
             "updated_at": _now(),
             "cars": _rank_cars(cars),
             "race_control": rc[::-1],
-            "weather": {},
+            "weather": self._weather(T, lap),
         }
+
+    def _weather(self, T: float, lap: int) -> dict:
+        if self.wx is None:
+            return {}
+        prior = self.wx[self.wx["Time"].dt.total_seconds() <= T]
+        if not len(prior):
+            return {}
+        w = prior.iloc[-1]
+        return {"rainfall": bool(w["Rainfall"]), "track_temp": float(w["TrackTemp"]), "air_temp": float(w["AirTemp"]),
+                "rain_laps": sorted(l for l in self.rain_laps if l <= lap)}
 
 
 # ---------------------------------------------------------------------------
@@ -401,6 +419,18 @@ def build_openf1_state(rnd, drivers, laps, stints, pits, rc, intervals, weather,
 # ---------------------------------------------------------------------------
 # F1 SignalR live timing (FastF1 client + incremental reducer)
 # ---------------------------------------------------------------------------
+def _truthy(v: Any) -> bool:
+    """F1 live timing sends flags as "0"/"1" strings."""
+    return str(v).strip().lower() in ("1", "true")
+
+
+def _num(v: Any) -> float | None:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _deep_merge(dst: dict, src: dict) -> dict:
     for k, v in src.items():
         if isinstance(v, dict) and isinstance(dst.get(k), dict):
@@ -439,6 +469,7 @@ class TimingReducer:
         self.data: dict[str, Any] = {}
         self.lap_history: dict[str, list[dict]] = {}
         self.neutral_laps: set[int] = set()
+        self.rain_laps: set[int] = set()
         self.lock = threading.Lock()
 
     def apply(self, topic: str, payload: Any) -> None:
@@ -465,6 +496,10 @@ class TimingReducer:
                 lap = int(self.data.get("LapCount", {}).get("CurrentLap") or 0)
                 if st in ("SC", "VSC", "RED", "VSC_ENDING") and lap:
                     self.neutral_laps.add(lap)
+            if topic == "WeatherData" and isinstance(payload, dict) and _truthy(payload.get("Rainfall")):
+                lap = int(self.data.get("LapCount", {}).get("CurrentLap") or 0)
+                if lap:
+                    self.rain_laps.add(lap)
             if isinstance(payload, dict) and isinstance(self.data.get(topic), dict):
                 _deep_merge(self.data[topic], payload)
             else:
@@ -514,6 +549,13 @@ class TimingReducer:
                 "pit_out": bool(upd.get("PitOut") or prev.get("PitOut")),
                 "neutral": neutral_now,
             })
+
+    def _weather(self) -> dict:
+        w = self.data.get("WeatherData") or {}
+        if not w and not self.rain_laps:
+            return {}
+        return {"rainfall": _truthy(w.get("Rainfall")), "track_temp": _num(w.get("TrackTemp")), "air_temp": _num(w.get("AirTemp")),
+                "rain_laps": sorted(self.rain_laps)}
 
     def state(self, rnd: int, total_laps: int | None) -> dict:
         with self.lock:
@@ -574,7 +616,7 @@ class TimingReducer:
             "updated_at": _now(),
             "cars": cars,
             "race_control": [{"lap": m.get("Lap"), "category": m.get("Category"), "message": m.get("Message"), "flag": m.get("Flag")} for m in msgs[-12:][::-1]],
-            "weather": {},
+            "weather": self._weather(),
         }
 
 

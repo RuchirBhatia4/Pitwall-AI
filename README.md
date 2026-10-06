@@ -59,6 +59,15 @@ Every round is predicted using only information available before that race. Scop
 
 **Reading this honestly:** predicting what teams will do from public data is hard — incidents, team orders, covering and track position drive many calls. The physics optimiser now times the first stop better than the baseline and is best on stop count; the hybrid model is best on compound choice; the naive baseline is still best on the starting tyre. The engine's main value is **decision support** — what is fastest from the current state, how risky, and how that changes lap by lap — which the live pit wall and what-if tools expose. The original project's XGBoost degradation model (random-split R² 0.66, future-race R² < 0) is kept in `src/models/` as the reason the new engine is evaluated walk-forward only.
 
+**Live calls, scored lap by lap** (`python -m src.pitwall.eval_calls <rounds>`): every driver, every lap of a replay, through the live engine. A "BOX, BOX" is false if the car did not pit that lap or the next.
+
+| | False "BOX, BOX" (old → new) | Green-flag stops flagged in advance (old → new) |
+|---|---|---|
+| Tuning races R4 (wet), R7, R12 (wet), R15 | 1,100 → 60 | 98 / 105 → 94 / 105 |
+| Held-out races R9, R10, R13, R14 (tested once) | 425 → 24 | 30 / 56 → 30 / 56 |
+
+The dry wear model times stops to a window, not a lap (no green-flag threshold reached 2-lap precision above ~0.35), so under green the call is **"pit window open — box by lap N"** and "BOX, BOX" is kept for a closing window (waiting costs ≥ 3 s), a confident SC/VSC stop, or a wet/slick crossover. In wet or changing conditions (rain that moves lap times, cars on intermediates, race-control wet-track messages, a field drying > 1.2 %/lap) the affected laps are kept out of the wear model, dry stops are held, cars that ran wet tyres are freed from the two-compound rule, and slick ↔ intermediate switches are called from who is faster on each tyre right now. No 2026 race has used intermediates yet, so that path is covered by tests (`tests/test_wet_calls.py`), not by a replay.
+
 Backtests are logged to MLflow (`mlflow ui`, experiment `pitwall_strategy_backtest`).
 
 ## Architecture

@@ -34,7 +34,12 @@ const STATUS_STYLE: Record<string, string> = {
 
 function CallCard({ a }: { a: Analysis }) {
   const c = a.call;
-  const tone = c.action === "BOX_NOW" ? "border-accent bg-accent/10" : c.action === "BOX_SOON" ? "border-warn bg-warn/10" : "border-good/50 bg-good/5";
+  const tone =
+    c.action === "BOX_NOW" ? "border-accent bg-accent/10"
+    : c.action === "BOX_SOON" || c.action === "WINDOW_OPEN" ? "border-warn bg-warn/10"
+    : c.action === "HOLD" ? "border-line bg-surface-2"
+    : "border-good/50 bg-good/5";
+  const cond = a.conditions;
   return (
     <div className={clsx("rounded-2xl border-2 p-5 sm:p-6", tone)}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -46,6 +51,15 @@ function CallCard({ a }: { a: Analysis }) {
         )}
       </div>
       <div className={clsx("mt-2 text-3xl sm:text-4xl font-bold tracking-tight", c.action === "BOX_NOW" && "text-accent")}>{c.headline}</div>
+      {c.reason && <div className="mt-2 text-sm text-text-2 max-w-2xl">{c.reason}</div>}
+      {cond?.changing && (
+        <div className="mt-3 inline-flex flex-wrap items-center gap-2 rounded-lg border border-line px-2.5 py-1 text-xs text-text-2">
+          <span aria-hidden>🌧</span>
+          <span className="font-medium text-text">{cond.unsettled ? "Conditions changing" : "Rain reported"}</span>
+          <span>{cond.reasons.join(" · ")}</span>
+          {cond.excluded_laps.length > 0 && <span className="text-text-3">· {cond.excluded_laps.length} laps kept out of the wear model</span>}
+        </div>
+      )}
       {c.stop_probabilities && Object.keys(c.stop_probabilities).length > 1 && (
         <div className="mt-4 max-w-md">
           <div className="text-xs text-text-3 mb-1.5">More stops needed from here (simulated)</div>

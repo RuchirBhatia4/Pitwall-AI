@@ -48,6 +48,10 @@ class RaceContext:
     # Pre-race only: extra cost of starting on a compound (launch grip, lap-1
     # position). Learned from teams' revealed start-tyre choices.
     start_penalty: dict = field(default_factory=dict)
+    # FIA: two different dry compounds are mandatory only if the car never ran
+    # intermediates or wets in the race. Live, a car that has used wet tyres is
+    # free to finish on one dry compound, so the rule is switched off for it.
+    two_compound_rule: bool = True
 
 
 @dataclass
@@ -86,6 +90,7 @@ class Optimizer:
     def __init__(self, model: TyreModel, ctx: RaceContext):
         self.model = model
         self.ctx = ctx
+        self.relaxed = False  # see current_cost: soft tyre-life cliff instead of a hard limit
         L = ctx.total_laps
         self.L = L
         laps = np.arange(L + 2, dtype=float)
@@ -124,8 +129,14 @@ class Optimizer:
         ages = (age + laps - start + 1).astype(float)
         cum = np.cumsum(self._lap_cost(compound, ages, laps))
         # A worn set can always be pushed a bit, but not beyond ~1.3x its life.
-        too_long = ages > self.model.compounds[compound].max_stint * 1.3
-        cum[too_long] = INF
+        limit = self.model.compounds[compound].max_stint * 1.3
+        too_long = ages > limit
+        if self.relaxed:
+            # The car is already past the model's tyre life and still circulating:
+            # keep every plan possible, with a steep and growing cliff instead.
+            cum = cum + np.cumsum(np.where(too_long, 0.5 * (ages - limit), 0.0))
+        else:
+            cum[too_long] = INF
         c[laps] = cum
         return c
 
@@ -191,7 +202,7 @@ class Optimizer:
                 for rest in itertools.product(avail, repeat=stops):
                     seq = [first, *rest]
                     used = set(state.used) | set(seq)
-                    if len(used & set(DRY_COMPOUNDS)) < 2:
+                    if self.ctx.two_compound_rule and len(used & set(DRY_COMPOUNDS)) < 2:
                         continue  # FIA: two different dry compounds in a dry race
                     out.append(seq)
         return out

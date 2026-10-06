@@ -271,7 +271,7 @@ export interface RaceState {
   updated_at: string;
   cars: CarState[];
   race_control: { lap: number | null; category: string; message: string; flag: string | null }[];
-  weather: { track_temp?: number; air_temp?: number; rainfall?: number };
+  weather: { track_temp?: number | null; air_temp?: number | null; rainfall?: number | boolean; rain_laps?: number[] };
 }
 
 export interface Analysis {
@@ -282,7 +282,7 @@ export interface Analysis {
   track_status: string;
   car: CarState;
   call: {
-    action: "BOX_NOW" | "BOX_SOON" | "STAY_OUT" | "RETIRED" | "FINISHED" | "NO_PLAN";
+    action: "BOX_NOW" | "BOX_SOON" | "WINDOW_OPEN" | "HOLD" | "STAY_OUT" | "RETIRED" | "FINISHED" | "NO_PLAN";
     headline: string;
     target_lap?: number | null;
     next_compound?: Compound | null;
@@ -291,6 +291,18 @@ export interface Analysis {
     margin_to_next?: number | null;
     box_now_cost?: number | null;
     stop_probabilities?: Record<string, number>;
+    /** seconds lost by not boxing this lap (only when the optimiser wanted a stop now) */
+    wait_cost?: number | null;
+    reason?: string | null;
+  };
+  conditions?: {
+    changing: boolean;
+    unsettled: boolean;
+    raining: boolean;
+    reasons: string[];
+    cars_on_wets: string[];
+    excluded_laps: number[];
+    crossover?: { on_wet: boolean; gain_per_lap: number | null; needed_per_lap: number; other_cars: number; switch: boolean } | null;
   };
   plans?: Strategy[];
   model?: {

@@ -21,6 +21,29 @@ STATUS_RED = "5"
 STATUS_VSC = ("6", "7")
 
 
+class _held_fastf1_logs:
+    """Buffer FastF1's log records; replay them on exit only if ``keep`` is set."""
+
+    def __enter__(self):
+        import logging
+
+        self.keep = True
+        self.records: list = []
+        self.logger = logging.getLogger("fastf1")
+        self.handlers, self.propagate = self.logger.handlers[:], self.logger.propagate
+        buffer = logging.Handler()
+        buffer.emit = self.records.append
+        self.logger.handlers, self.logger.propagate = [buffer], False
+        return self
+
+    def __exit__(self, *exc):
+        self.logger.handlers, self.logger.propagate = self.handlers, self.propagate
+        if self.keep or exc[0] is not None:
+            for record in self.records:
+                self.logger.handle(record)
+        return False
+
+
 @lru_cache(maxsize=96)
 def load_session(year: int, rnd: int, identifier: str):
     """Load a session (laps, results, weather, race control). Cached in-process.
@@ -33,12 +56,18 @@ def load_session(year: int, rnd: int, identifier: str):
     import fastf1
 
     session = fastf1.get_session(year, rnd, identifier)
-    session.load(telemetry=False, weather=True, messages=True)
-    try:
-        if len(session.laps) and len(session.results):
-            return session
-    except Exception:  # DataNotLoadedError: nothing cached and the archive refused
-        pass
+    # Hold FastF1's log output until we know whether its data is used: when the
+    # archive refuses a session it logs a page of "Failed to load ..." warnings
+    # that mean nothing once OpenF1 takes over.
+    with _held_fastf1_logs() as held:
+        session.load(telemetry=False, weather=True, messages=True)
+        try:
+            ok = bool(len(session.laps) and len(session.results))
+        except Exception:  # DataNotLoadedError: nothing cached and the archive refused
+            ok = False
+        held.keep = ok
+    if ok:
+        return session
     from src.pitwall.openf1_data import load_openf1_session
 
     start = event_sessions(year, rnd).get(identifier)

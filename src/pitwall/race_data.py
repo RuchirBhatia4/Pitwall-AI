@@ -23,13 +23,28 @@ STATUS_VSC = ("6", "7")
 
 @lru_cache(maxsize=96)
 def load_session(year: int, rnd: int, identifier: str):
-    """Load a FastF1 session (laps, results, weather, race control). Cached in-process."""
+    """Load a session (laps, results, weather, race control). Cached in-process.
+
+    FastF1 first, which serves sessions already in the local cache. F1's timing
+    archive now needs a login, so anything not cached comes from OpenF1
+    instead, in the same shape (see openf1_data).
+    """
     enable_cache()
     import fastf1
 
     session = fastf1.get_session(year, rnd, identifier)
     session.load(telemetry=False, weather=True, messages=True)
-    return session
+    try:
+        if len(session.laps) and len(session.results):
+            return session
+    except Exception:  # DataNotLoadedError: nothing cached and the archive refused
+        pass
+    from src.pitwall.openf1_data import load_openf1_session
+
+    start = event_sessions(year, rnd).get(identifier)
+    if start is None:
+        raise ValueError(f"Round {rnd} has no {identifier} session")
+    return load_openf1_session(year, identifier, start)
 
 
 def event_sessions(year: int, rnd: int) -> dict[str, pd.Timestamp]:

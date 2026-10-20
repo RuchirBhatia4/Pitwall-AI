@@ -7,7 +7,7 @@ Two services:
 - **API** – FastAPI (`src/api/main.py`) on Render (or any Python host).
 - **Frontend** – Next.js (`frontend/`) on Vercel.
 
-The API serves the pre-built JSON in `data/season/2026/` (committed), so it does not need the multi-GB FastF1 cache. Replays and the live tracker fetch what they need on demand.
+The API serves the pre-built JSON in `data/season/2026/` (committed), so it does not need the multi-GB FastF1 cache. Replays read the saved race files in `data/season/2026/replay/` (written by `build_season`), and the live tracker fetches what it needs on demand.
 
 ## 1. API on Render
 
@@ -38,7 +38,7 @@ The frontend proxies `/api/*` to `PITWALL_API_URL` through Next.js rewrites, so 
 ## 3. Updating after each race
 
 ```bash
-python -m src.pitwall.prefetch       # new sessions into the FastF1 cache
+python -m src.pitwall.prefetch       # new sessions into the local cache (OpenF1 when F1's archive refuses)
 python -m src.pitwall.build_season   # rebuild rounds, backtest, hybrid model
 git add data/season/2026 && git commit -m "Add round N" && git push
 ```

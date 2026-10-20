@@ -45,17 +45,19 @@ t = base_d + offset_c + wear_{c,team} · a · (1 + φ · fuel_remaining(n)) + q 
 
 ## Validation (walk-forward, no leakage)
 
-Every round is predicted using only information available before that race. Scope: dry 2026 races from round 4, classified finishers, **173 driver-races**.
+Every round is predicted using only information available before that race. Scope: dry 2026 races from round 4, classified finishers, **191 driver-races** (through round 17).
 
 | Metric | Hybrid (physics + behaviour ML) | Physics optimiser only | Naive baseline* |
 |---|---|---|---|
-| Number of stops correct | 28.9% | **33.5%** | 27.7% |
-| Compounds used correct | **43.9%** | 38.2% | 38.2% |
-| Starting tyre correct | 59.0% | 38.2% | **64.2%** |
-| First-stop lap, mean abs. error | 11.0 laps | **9.2 laps** | 10.3 laps |
-| 80% conformal interval coverage (first stop) | — | 85.0% | target 80% |
+| Number of stops correct | 28.3% | **37.7%** | 32.5% |
+| Compounds used correct | **39.8%** | 34.6% | 34.6% |
+| Starting tyre correct | 57.1% | 34.6% | **61.8%** |
+| First-stop lap, mean abs. error | 10.7 laps | **9.1 laps** | 10.3 laps |
+| 80% conformal interval coverage (first stop) | — | 85.3% | target 80% |
 
 \*Baseline: the most common strategy of earlier dry 2026 races with the median first-stop fraction.
+
+**Data source:** rounds 1–15 come from FastF1. In October 2026 F1's timing archive started requiring a login, so later rounds come from OpenF1 (`src/pitwall/openf1_data.py`), mapped to the same tables. On rounds 10 and 15, where both exist, the two give identical lap times, safety-car/VSC laps, pit loss and results; OpenF1 occasionally records a used tyre set as new, which moves some fitted wear rates slightly.
 
 **Reading this honestly:** predicting what teams will do from public data is hard — incidents, team orders, covering and track position drive many calls. The physics optimiser now times the first stop better than the baseline and is best on stop count; the hybrid model is best on compound choice; the naive baseline is still best on the starting tyre. The engine's main value is **decision support** — what is fastest from the current state, how risky, and how that changes lap by lap — which the live pit wall and what-if tools expose. The original project's XGBoost degradation model (random-split R² 0.66, future-race R² < 0) is kept in `src/models/` as the reason the new engine is evaluated walk-forward only.
 
@@ -97,7 +99,7 @@ src/pitwall/race_data.py ─► tyre_model.py ─► weekend.py    live_sources.
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
-# 1. Download/cache the 2026 sessions (FastF1 rate-limits itself to 500 calls/h; re-run if it stops)
+# 1. Download/cache the 2026 sessions (FastF1 cache first, OpenF1 for anything F1's archive no longer serves)
 python -m src.pitwall.prefetch
 # 2. Build every round + walk-forward backtest + hybrid behaviour model
 python -m src.pitwall.build_season

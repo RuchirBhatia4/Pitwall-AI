@@ -35,3 +35,6 @@ frontend/dist/
 # PitWall runtime logs and raw live-timing recordings
 data/season/*.log
 data/season/live_*.txt
+
+# OpenF1 responses (finished sessions never change; refetched if missing).
+data/raw/openf1/

@@ -149,6 +149,8 @@ def main() -> None:
         if n_rounds < MIN_TRAIN_ROUNDS:
             continue
         test = rows[rnd]
+        if not test:  # pre-race build before qualifying: no drivers to predict yet
+            continue
         preds = _fit_predict(train, test)
         L = data["weekend"]["total_laps"]
         for row, p in zip(test, preds):

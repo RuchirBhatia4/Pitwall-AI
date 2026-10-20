@@ -313,9 +313,10 @@ def _track_status_from_rc(rc: list[dict]) -> tuple[str, set[int]]:
         msg = (m.get("message") or "").upper()
         flag = (m.get("flag") or "").upper()
         lap = m.get("lap_number")
-        if "VIRTUAL SAFETY CAR DEPLOYED" in msg:
+        # race control writes both "VSC DEPLOYED" and "VIRTUAL SAFETY CAR DEPLOYED"
+        if "VSC DEPLOYED" in msg or "VIRTUAL SAFETY CAR DEPLOYED" in msg:
             status, current_start = "VSC", lap
-        elif "VIRTUAL SAFETY CAR ENDING" in msg:
+        elif "VSC ENDING" in msg or "VIRTUAL SAFETY CAR ENDING" in msg:
             status = "VSC_ENDING"
         elif "SAFETY CAR DEPLOYED" in msg:
             status, current_start = "SC", lap

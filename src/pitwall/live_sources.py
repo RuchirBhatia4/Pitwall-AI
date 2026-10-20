@@ -36,6 +36,7 @@ import pandas as pd
 import requests
 
 from src.pitwall.race_data import load_session, normalize_laps
+from src.pitwall.season import SEASON_DIR
 from src.pitwall.weekend import YEAR, event_row
 
 log = logging.getLogger("pitwall.live")
@@ -74,9 +75,30 @@ def _rank_cars(cars: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Replay (FastF1, finished races)
 # ---------------------------------------------------------------------------
+# F1's timing archive (livetiming.formula1.com/static) now needs a login, so a
+# server without a FastF1 cache can't load finished races. export_replay saves
+# just what a replay needs (~100 KB a race) next to the season files; the API
+# reads that and only falls back to FastF1 when the file is missing.
+REPLAY_DIR = SEASON_DIR / str(YEAR) / "replay"
+_REPLAY_FIELDS = ("total_laps", "laps", "meta", "neutral_laps", "leader_end", "ts", "rcm", "wx", "rain_laps")
+
+
+def replay_path(rnd: int):
+    return REPLAY_DIR / f"r{rnd:02d}.pkl.gz"
+
+
 class ReplaySource:
     def __init__(self, rnd: int):
         self.round = rnd
+        path = replay_path(rnd)
+        if path.exists():
+            saved = pd.read_pickle(path)
+            for k in _REPLAY_FIELDS:
+                setattr(self, k, saved[k])
+            return
+        self._from_fastf1(rnd)
+
+    def _from_fastf1(self, rnd: int) -> None:
         self.session = load_session(YEAR, rnd, "Race")
         self.laps = normalize_laps(self.session)
         self.total_laps = int(self.laps["lap"].max())
@@ -104,6 +126,15 @@ class ReplaySource:
                 lap = next((l for l, e in ends if e >= t), None)
                 if lap is not None:
                     self.rain_laps.add(int(lap))
+
+    @classmethod
+    def export(cls, rnd: int) -> None:
+        """Save a finished race for replay (run locally, where the FastF1 cache has it)."""
+        src = cls.__new__(cls)
+        src.round = rnd
+        src._from_fastf1(rnd)
+        REPLAY_DIR.mkdir(parents=True, exist_ok=True)
+        pd.to_pickle({k: getattr(src, k) for k in _REPLAY_FIELDS}, replay_path(rnd))
 
     def state(self, lap: int) -> dict:
         lap = int(np.clip(lap, 1, self.total_laps))

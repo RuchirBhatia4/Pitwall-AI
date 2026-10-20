@@ -304,6 +304,8 @@ def main(only: int | None = None) -> None:
     if only:
         targets = [r for r in targets if r <= only]
 
+    export_replays(rounds)
+
     history: dict[int, dict] = {}
     residuals: list[float] = []
     for rnd in targets:
@@ -401,6 +403,20 @@ def write_index() -> None:
             mlflow.log_dict(backtest, "backtest.json")
     except Exception as exc:  # MLflow is optional at runtime
         print(f"(mlflow logging skipped: {exc})")
+
+
+def export_replays(rounds: list[int]) -> None:
+    """Save finished races for the Replay source, so the server never needs F1's archive."""
+    from src.pitwall.live_sources import ReplaySource, replay_path
+
+    for rnd in rounds:
+        if replay_path(rnd).exists():
+            continue
+        try:
+            ReplaySource.export(rnd)
+            print(f"replay saved for round {rnd}")
+        except Exception as exc:
+            print(f"(replay for round {rnd} skipped: {type(exc).__name__}: {exc})")
 
 
 if __name__ == "__main__":

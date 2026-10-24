@@ -54,8 +54,12 @@ def _get(endpoint: str, **params) -> list[dict]:
         break
     else:
         raise OpenF1Unavailable(f"OpenF1 kept rate-limiting {endpoint}")
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data))
+    # Only cache real data. An empty answer usually means the session hasn't
+    # happened or been published yet (OpenF1 withholds sessions until 30 min
+    # after they end); caching it would hide the data once it exists.
+    if data:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
     time.sleep(0.4)  # stay well under the free rate limit
     return data
 
@@ -256,6 +260,9 @@ class OpenF1Session:
         # OpenF1 leaves retired cars unclassified; FastF1 places them after the
         # finishers by laps completed, which the pipeline expects.
         if not res.empty and "position" in res:
+            # OpenF1 sometimes puts a status code in the position field (e.g.
+            # "RT" for a car that retired in qualifying); treat those as unclassified.
+            res = res.assign(position=pd.to_numeric(res["position"], errors="coerce"))
             placed = int(res["position"].max()) if res["position"].notna().any() else 0
             unplaced = res[res["position"].isna()].sort_values("number_of_laps", ascending=False)
             fill = {int(d): placed + i + 1 for i, d in enumerate(unplaced["driver_number"])}
@@ -276,7 +283,7 @@ class OpenF1Session:
             rows.append({
                 "Abbreviation": str(drv["name_acronym"]) if drv is not None else str(d),
                 "DriverNumber": str(d),
-                "FullName": str(drv["full_name"]) if drv is not None else "",
+                "FullName": _display_name(drv) if drv is not None else "",
                 "TeamName": str(drv["team_name"]) if drv is not None else "",
                 "TeamColor": str(drv["team_colour"] or "") if drv is not None else "",
                 "HeadshotUrl": str(drv.get("headshot_url") or "") if drv is not None else "",
@@ -286,6 +293,14 @@ class OpenF1Session:
                 "Points": float(r["points"]) if pd.notna(r.get("points")) else 0.0,
             })
         return pd.DataFrame(rows)
+
+
+def _display_name(drv) -> str:
+    """'Max Verstappen' rather than OpenF1's 'Max VERSTAPPEN' (FastF1's format)."""
+    first, last = drv.get("first_name"), drv.get("last_name")
+    if isinstance(first, str) and isinstance(last, str) and first and last:
+        return f"{first} {last}"
+    return str(drv.get("full_name") or "")
 
 
 def _sessions_row(session_key: int) -> dict:

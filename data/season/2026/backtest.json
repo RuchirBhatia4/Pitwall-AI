@@ -4,8 +4,8 @@
  "stops_accuracy": 0.3769633507853403,
  "compound_set_accuracy": 0.34554973821989526,
  "start_compound_accuracy": 0.34554973821989526,
- "first_stop_mae": 9.089005235602095,
- "window_coverage": 0.5287958115183246,
+ "first_stop_mae": 8.926701570680628,
+ "window_coverage": 0.5340314136125655,
  "conformal_coverage": 0.8534031413612565,
  "conformal_target": 0.8,
  "baseline": {
@@ -21,12 +21,12 @@
   "stops_accuracy": 0.28272251308900526,
   "compound_set_accuracy": 0.39790575916230364,
   "start_compound_accuracy": 0.5706806282722513,
-  "first_stop_mae": 10.696335078534032,
+  "first_stop_mae": 10.602094240837696,
   "physics_on_same_rows": {
    "stops_accuracy": 0.3769633507853403,
    "compound_set_accuracy": 0.34554973821989526,
    "start_compound_accuracy": 0.34554973821989526,
-   "first_stop_mae": 9.089005235602095
+   "first_stop_mae": 8.926701570680628
   },
   "baseline_on_same_rows": {
    "stops_accuracy": 0.32460732984293195,

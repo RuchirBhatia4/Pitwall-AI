@@ -90,6 +90,8 @@ export interface Driver {
   position?: number | null;
   status?: string;
   points?: number;
+  /** compound -> [new sets left for the race, laps on the freshest used set] */
+  tyre_sets?: Partial<Record<Compound, [number, number]>>;
 }
 
 export interface CompoundParams {
@@ -167,7 +169,9 @@ export interface PracticeRun {
   driver: string;
   team: string;
   compound: Compound;
+  type?: "race_sim" | "mid_fuel" | "sprint";
   laps: number;
+  level?: number;
   age_start: number;
   age_end: number;
   median_time: number;
@@ -189,10 +193,12 @@ export interface Weekend {
   offset_transfer: { beta: number; sd: number; n: number; source: string };
   short_run_offsets: Record<string, { offset: number; offset_se: number; pairs: number }>;
   prior: TyreModel;
-  practice: { compounds: Record<string, { deg: number; deg_se: number; runs: number; laps: number }> };
+  practice: {
+    compounds: Record<string, { deg: number; deg_se: number; runs: number; laps: number }>;
+    runs?: Partial<Record<"race_sim" | "mid_fuel" | "quali_sim" | "sprint" | "short", number>>;
+  };
   model: TyreModel;
-  raw_model: TyreModel;
-  behaviour: { soft_mult: number; fuel_wear: number; stop_penalty: number; hard_start: number; calibrated_on: number; loss?: number; loss_uncalibrated?: number };
+  behaviour: { fuel_wear: number; stop_penalty: number; hard_start: number; calibrated_on: number; loss?: number; loss_uncalibrated?: number };
   stop_penalty: number;
   fuel_wear: number;
   first_stop_q: number | null;

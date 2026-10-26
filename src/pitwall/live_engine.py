@@ -29,7 +29,7 @@ from collections import defaultdict
 
 import numpy as np
 
-from src.pitwall.optimizer import FUEL_WEAR_FACTOR, SC_PIT_FACTOR, SHORT, VSC_PIT_FACTOR, Optimizer, RaceContext, TyreState
+from src.pitwall.optimizer import FUEL_WEAR_FACTOR, SC_PIT_FACTOR, SHORT, VSC_PIT_FACTOR, Optimizer, RaceContext, TyreState, sets_left
 from src.pitwall.race_data import DRY_COMPOUNDS
 from src.pitwall.race_sim import Plan, RaceSim, params_from_forecast
 from src.pitwall.tyre_model import (
@@ -271,6 +271,12 @@ def live_pace(cars: list[dict], model: TyreModel, prior: dict[str, float], exclu
     return out
 
 
+def _live_sets(weekend: dict, car: dict) -> dict | None:
+    """The car's tyre sets still unused (pre-race inventory minus what it has raced)."""
+    sets = weekend.get("tyre_sets", {}).get(car["driver"]) or weekend.get("field_tyre_sets")
+    return sets_left(sets, tuple(car.get("compounds_used", [])) + (car["compound"],))
+
+
 def live_race_sim(state: dict, weekend: dict, model: TyreModel, ctx: RaceContext, car: dict, plans: list, rival_plans: dict[str, Plan],
                   exclude: frozenset[int]) -> dict | None:
     """Expected finishing position of each candidate plan, simulating the rest of
@@ -289,7 +295,7 @@ def live_race_sim(state: dict, weekend: dict, model: TyreModel, ctx: RaceContext
     neutral = {"SC": 2, "VSC": 1, "VSC_ENDING": 1}.get(state["track_status"], 0)
     # Same wear-vs-fuel setting as the validated pre-race simulation.
     sim_ctx = RaceContext(**{**ctx.__dict__, "fuel_wear": FUEL_WEAR_FACTOR})
-    sim = RaceSim(model, sim_ctx, [{"driver": c["driver"], "team": c.get("team")} for c in running], params, sims=LIVE_SIMS,
+    sim = RaceSim(model, sim_ctx, [{"driver": c["driver"], "team": c.get("team"), "tyre_sets": _live_sets(weekend, c)} for c in running], params, sims=LIVE_SIMS,
                   start_lap=k, gaps=gaps, tyres=tyres, neutral_now=neutral)
     field = {c["driver"]: rival_plans.get(c["driver"], Plan([c["compound"]], [])) for c in running}
     ranked = sim.best_response(car["driver"], [Plan.of(p) for p in plans], field)
@@ -345,7 +351,7 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
     tstate = TyreState(lap=k, compound=compound, age=int(car["tyre_age"]), used=used, pit_cost_now=pit_now)
     ctx = RaceContext(total_laps=total, pit_loss=pit_loss, sc_rate=weekend.get("sc_rate", 0.01), vsc_rate=weekend.get("vsc_rate", 0.006),
                       team=team, driver=driver, stop_penalty=weekend.get("stop_penalty", 0.0), fuel_wear=weekend.get("fuel_wear", 1.0), min_stint=2,
-                      two_compound_rule=not _ran_wets(car))
+                      two_compound_rule=not _ran_wets(car), tyre_sets=_live_sets(weekend, car))
     opt = Optimizer(model, ctx)
     plans = opt.candidates(tstate, max_stops=3, top=6)
     if not plans and compound:
@@ -479,7 +485,7 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
         if c["driver"] == driver or c["compound"] not in model.compounds:
             continue
         rc = RaceContext(total_laps=total, pit_loss=pit_loss, team=c.get("team"), driver=c["driver"], stop_penalty=ctx.stop_penalty, fuel_wear=ctx.fuel_wear, min_stint=2,
-                         two_compound_rule=not _ran_wets(c))
+                         two_compound_rule=not _ran_wets(c), tyre_sets=_live_sets(weekend, c))
         st = TyreState(lap=c["laps_completed"], compound=c["compound"], age=int(c["tyre_age"]),
                        used=tuple(x for x in c.get("compounds_used", []) if x in DRY_COMPOUNDS), pit_cost_now=pit_now)
         r = Optimizer(model, rc).optimise(st, max_stops=2, top=1)

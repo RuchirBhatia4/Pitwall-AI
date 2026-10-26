@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from src.pitwall.optimizer import INF, SC_PIT_FACTOR, VSC_PIT_FACTOR, Optimizer, RaceContext, Strategy, TyreState
+from src.pitwall.optimizer import INF, SC_PIT_FACTOR, VSC_PIT_FACTOR, Optimizer, RaceContext, Strategy, TyreState, stint_set_ages
 from src.pitwall.tyre_model import TyreModel
 
 MIN_GAP = 0.5  # s: closest a held-up car runs behind the car ahead at the line
@@ -139,7 +139,7 @@ class RaceSim:
         tyre = np.zeros((S, self.n), dtype=np.float32)
         pit = np.zeros((S, self.n), dtype=np.float32)
         laps = np.arange(1, L + 1)
-        age0 = int(self.tyres.get(self.cars[i]["driver"], (None, 0))[1]) if self.tyres else 0
+        on_car = int(self.tyres.get(self.cars[i]["driver"], (None, 0))[1]) if self.tyres else None
         here = TyreState(lap=k0)
         # A rival a lap behind can have a stop on a lap the leaders have done: box now.
         planned = []
@@ -148,6 +148,7 @@ class RaceSim:
             if p_lap < L:
                 planned.append(p_lap)
         seq = plan.sequence[: len(planned) + 1]
+        set_age = stint_set_ages(seq, self.cars[i].get("tyre_sets"), on_car)
         for s in range(S):
             pits = planned
             if pits and self.neutral_starts[s]:
@@ -158,7 +159,7 @@ class RaceSim:
                 if b <= a or comp not in self.model.compounds:
                     continue
                 p = self.model.compounds[comp]
-                age = np.arange(1, b - a + 1, dtype=float) + (age0 if k == 0 else 0)
+                age = np.arange(1, b - a + 1, dtype=float) + set_age[k]
                 d = self.deg_draw[comp][s] * self._mult[i, comp]
                 cost = p.offset + d * age * self.wear_w[laps[a - 1 : b - 1]] + self.model.quad * age**2
                 over = age - p.max_stint * 1.3

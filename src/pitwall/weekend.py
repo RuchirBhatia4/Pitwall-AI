@@ -29,11 +29,12 @@ from src.pitwall.race_data import (
 from src.pitwall import track_history
 from src.pitwall.season import SEASON_DIR, get_schedule
 from src.pitwall.tyre_model import (
+    LONG_RUN_TYPES,
     TyreModel,
-    summarise_practice,
+    classify_practice_runs,
     fit_race_model,
     fit_transfer,
-    practice_long_runs,
+    race_stint_wear,
     season_prior,
     short_run_offsets,
     summarise_practice,
@@ -47,11 +48,31 @@ from src.pitwall.tyre_model import (
 
 YEAR = 2026
 FITS_DIR = SEASON_DIR / str(YEAR) / "fits"
+# Bump when what race_fit stores changes; older cached fits are recomputed.
+FIT_VERSION = 2
+# Wear a pre-race model is built to predict: "stint" = race_stint_wear (the
+# within-stint drop-off), "fit" = fit_race_model's wear.
+WEAR_TARGET = "stint"
 PRACTICE_SESSIONS = ("Practice 1", "Practice 2", "Practice 3", "Sprint")
 # Weight (in laps) of the 2026 season-wide Safety Car / VSC rate against a
 # circuit's own 2024-25 record: ~2 races, so two quiet years at a track pull
 # its rate down but cannot zero it.
 VENUE_SC_PRIOR_LAPS = 120.0
+# A compound needs this many clean race laps for its within-stint wear to count.
+RACE_WEAR_MIN_LAPS = 60
+# Pirelli's sets per driver for a weekend (sprint weekends trade two softs for
+# a medium). Qualifying uses most of the softs, so a race soft is often a
+# scrubbed set: in 2026 the median driver started the race with 1 new soft and
+# 1 new medium. The two hardest compounds always had a new set kept back.
+TYRE_ALLOCATION = {
+    "conventional": {"SOFT": 8, "MEDIUM": 3, "HARD": 2},
+    "sprint_qualifying": {"SOFT": 6, "MEDIUM": 4, "HARD": 2},
+}
+KEPT_FOR_RACE = ("MEDIUM", "HARD")
+# Compound -> (new sets, laps on the freshest used set) when there is no
+# running to count yet: the median 2026 driver at the start of a race.
+TYPICAL_SETS = {"SOFT": (1, 4), "MEDIUM": (1, 6), "HARD": (2, 6)}
+INVENTORY_SESSIONS = PRACTICE_SESSIONS + ("Sprint Qualifying", "Sprint Shootout", "Qualifying")
 # Official race distances for events not yet run (laps). Completed races use
 # the classified lap count.
 SCHEDULED_LAPS = {"Kuala Lumpur": 56, "Marina Bay": 62, "Austin": 56, "Mexico City": 71,
@@ -78,7 +99,9 @@ def race_fit(rnd: int) -> dict | None:
     FITS_DIR.mkdir(parents=True, exist_ok=True)
     path = FITS_DIR / f"r{rnd:02d}.json"
     if path.exists():
-        return json.loads(path.read_text())
+        cached = json.loads(path.read_text())
+        if cached.get("version") == FIT_VERSION:
+            return cached
     try:
         session = load_session(YEAR, rnd, "Race")
     except Exception:
@@ -92,6 +115,7 @@ def race_fit(rnd: int) -> dict | None:
     stints = stints_from_laps(laps)
     neutral_starts = {k: sum(1 for i, lap in enumerate(v) if i == 0 or v[i - 1] != lap - 1) for k, v in neutral.items()}
     out = {
+        "version": FIT_VERSION,
         "round": rnd,
         "total_laps": int(laps["lap"].max()),
         "pit_loss": measure_pit_loss(laps, neutral),
@@ -99,6 +123,7 @@ def race_fit(rnd: int) -> dict | None:
         "sc_starts": neutral_starts["sc"],
         "vsc_starts": neutral_starts["vsc"],
         "model": model.to_dict() if model else None,
+        "stint_wear": race_stint_wear(laps, neutral, model.fuel_per_lap) if model else {},
         "max_age": stints.groupby("compound")["laps"].max().to_dict() if not stints.empty else {},
     }
     # Same-weekend practice evidence, used only to learn practice->race transfer
@@ -112,18 +137,20 @@ def race_fit(rnd: int) -> dict | None:
 
 def _prior_inputs(rnd: int) -> tuple[TyreModel, dict]:
     fits = [f for r in range(1, rnd) if race_is_finished(r) and (f := race_fit(r))]
-    models = [TyreModel.from_dict(f["model"]) for f in fits if f.get("model")]
-    prior = season_prior(models)
+    with_model = [f for f in fits if f.get("model")]
+    models = [TyreModel.from_dict(f["model"]) for f in with_model]
+    wear = [_race_wear(f) for f in with_model]
+    prior = season_prior(models, wear)
     laps_total = sum(f["total_laps"] for f in fits) or 1
     pit_losses = [f["pit_loss"] for f in fits if f.get("pit_loss")]
     pairs = []
     for f in fits:
         if not f.get("model"):
             continue
+        race = _race_wear(f)
         for c, pc in f.get("practice", {}).get("compounds", {}).items():
-            rc = f["model"]["compounds"].get(c)
-            if rc and pc["laps"] >= 15:
-                pairs.append((pc["deg"], rc["deg"], min(pc["laps"], rc["evidence_laps"]) ** 0.5))
+            if c in race and pc["laps"] >= 15:
+                pairs.append((pc["deg"], race[c], min(pc["laps"], f["model"]["compounds"].get(c, {}).get("evidence_laps", pc["laps"])) ** 0.5))
     off_pairs = []
     for f in fits:
         if not f.get("model"):
@@ -135,11 +162,10 @@ def _prior_inputs(rnd: int) -> tuple[TyreModel, dict]:
     off_transfer = fit_transfer(off_pairs, clip=(0.0, 1.0))
     # Typical wear of each compound relative to the Medium, from earlier races.
     ratio_obs: dict[str, list[float]] = {}
-    for f in fits:
-        mc = (f.get("model") or {}).get("compounds", {})
-        if "MEDIUM" in mc and mc["MEDIUM"]["deg"] > 0.02:
-            for c, v in mc.items():
-                ratio_obs.setdefault(c, []).append(v["deg"] / mc["MEDIUM"]["deg"])
+    for race in wear:
+        if race.get("MEDIUM", 0.0) > 0.02:
+            for c, v in race.items():
+                ratio_obs.setdefault(c, []).append(v / race["MEDIUM"])
     ratios = {c: (float(np.median(v)) if len(v) >= 2 else DEFAULT_COMPOUND_RATIOS[c]) for c, v in ratio_obs.items()}
     ratios = DEFAULT_COMPOUND_RATIOS | ratios
     stats = {
@@ -153,6 +179,13 @@ def _prior_inputs(rnd: int) -> tuple[TyreModel, dict]:
         "pit_loss_median": float(np.median(pit_losses)) if pit_losses else 22.5,
     }
     return prior, stats
+
+
+def _race_wear(fit: dict) -> dict[str, float]:
+    """Compound -> wear of a finished race, as WEAR_TARGET defines it."""
+    if WEAR_TARGET == "fit":
+        return {c: v["deg"] for c, v in fit["model"]["compounds"].items()}
+    return {c: max(v["deg"], 0.005) for c, v in fit.get("stint_wear", {}).items() if v["laps"] >= RACE_WEAR_MIN_LAPS}
 
 
 def practice_evidence(rnd: int) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
@@ -170,10 +203,59 @@ def practice_evidence(rnd: int) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
         # Sprint races are full-fuel-ish race runs: use the stints directly.
         if name != "Sprint":
             all_laps[name] = laps
-        r = practice_long_runs(laps, name, min_laps=5 if name != "Sprint" else 6)
+        r = classify_practice_runs(laps, name)
         if not r.empty:
             runs.append(r)
     return (pd.concat(runs, ignore_index=True) if runs else pd.DataFrame()), all_laps
+
+
+def tyre_sets(rnd: int, fmt: str) -> dict[str, dict[str, list[int]]]:
+    """Each driver's tyre sets left for the race, counted from every session
+    before it: compound -> [new sets, laps on the freshest used set].
+
+    A stint starting on a new set (FastF1 / OpenF1 fresh flag, tyre age <= 2)
+    uses one up. OpenF1 sometimes flags a used set as new, which can only
+    under-count what is left, never invent sets: counts are capped by the
+    allocation and a new medium and hard are always kept.
+    """
+    sessions = event_sessions(YEAR, rnd)
+    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    alloc = TYRE_ALLOCATION.get(fmt, TYRE_ALLOCATION["conventional"])
+    new_used: dict[tuple[str, str], int] = {}
+    used_age: dict[tuple[str, str], float] = {}
+    for name in INVENTORY_SESSIONS:
+        if name not in sessions or sessions[name] > now:
+            continue
+        try:
+            laps = normalize_laps(load_session(YEAR, rnd, name))
+        except Exception:
+            continue
+        if laps.empty:
+            continue
+        for (drv, _), g in laps.groupby(["driver", "stint"]):
+            c = g["compound"].iloc[0]
+            life = g["tyre_life"].dropna()
+            if c not in alloc or life.empty:
+                continue
+            fresh = g["fresh"].iloc[0]
+            if float(life.iloc[0]) <= 2 and (pd.isna(fresh) or bool(fresh)):
+                new_used[(drv, c)] = new_used.get((drv, c), 0) + 1
+            used_age[(drv, c)] = min(used_age.get((drv, c), 99.0), float(life.max()))
+    out: dict[str, dict[str, list[int]]] = {}
+    for drv in {d for d, _ in new_used} | {d for d, _ in used_age}:
+        out[drv] = {
+            c: [max(n - new_used.get((drv, c), 0), 1 if c in KEPT_FOR_RACE else 0), int(used_age.get((drv, c), TYPICAL_SETS[c][1]))]
+            for c, n in alloc.items()
+        }
+    return out
+
+
+def field_tyre_sets(sets: dict[str, dict[str, list[int]]]) -> dict[str, list[int]]:
+    """The median driver's sets (used for field-level plans)."""
+    if not sets:
+        return {c: list(v) for c, v in TYPICAL_SETS.items()}
+    return {c: [int(np.median([d[c][0] for d in sets.values()])), int(np.median([d[c][1] for d in sets.values()]))]
+            for c in TYPICAL_SETS}
 
 
 @lru_cache(maxsize=32)
@@ -223,15 +305,20 @@ def build_weekend(rnd: int) -> dict:
     except Exception:
         pass
 
+    sets = tyre_sets(rnd, str(ev["EventFormat"]))
+    field_sets = field_tyre_sets(sets)
+    for d in drivers:
+        d["tyre_sets"] = sets.get(d["driver"]) or field_sets
+
     # Personal wear multipliers: season history per driver + this weekend's long runs.
     team_of = {d["driver"]: d["team"] for d in drivers}
-    run_dicts = runs.to_dict("records") if not runs.empty else []
+    long_runs = runs[runs["type"].isin(LONG_RUN_TYPES)] if not runs.empty else runs
+    run_dicts = long_runs.to_dict("records") if not long_runs.empty else []
     model = personalise(model, season_drivers, practice_driver_multipliers(run_dicts, model, stats["transfer"]), team_of)
 
     runs_out = []
-    if not runs.empty:
-        for _, r in runs.iterrows():
-            runs_out.append({k: r[k] for k in ("session", "driver", "team", "compound", "laps", "age_start", "age_end", "median_time", "raw_slope")} | {"ages": r["ages"], "times": r["times"]})
+    for _, r in long_runs.iterrows():
+        runs_out.append({k: r[k] for k in ("session", "driver", "team", "compound", "type", "laps", "level", "age_start", "age_end", "median_time", "raw_slope")} | {"ages": r["ages"], "times": r["times"]})
 
     return {
         "round": rnd,
@@ -247,6 +334,8 @@ def build_weekend(rnd: int) -> dict:
         "season_sc_rate": stats["sc_rate"],
         "season_vsc_rate": stats["vsc_rate"],
         "venue_history": venue,
+        "tyre_sets": {d["driver"]: d["tyre_sets"] for d in drivers},
+        "field_tyre_sets": field_sets,
         "prior_races": stats["races"],
         "transfer": stats["transfer"],
         "offset_transfer": stats["offset_transfer"],

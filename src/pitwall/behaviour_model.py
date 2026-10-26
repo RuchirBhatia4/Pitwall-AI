@@ -39,9 +39,19 @@ FEATURES = ["gap_1v2", "gap_2v3", "opt_first_frac", "deg_S", "deg_M", "deg_H", "
 TIMING_FEATURES = [f for f in FEATURES if not f.startswith("practice_")]
 
 
+def _sets(w: dict, driver: str | None) -> dict | None:
+    """The driver's tyre sets for the race: they shape the physics features
+    (e.g. a two-stop needing a second new medium). Counts of new sets as
+    features of their own made the classifier worse walk-forward (stop count
+    44.3% -> 38.1%): the counts are noisy and already act through physics."""
+    sets = w.get("tyre_sets", {}).get(driver) or w.get("field_tyre_sets")
+    return {c: tuple(v) for c, v in sets.items()} if sets else None
+
+
 def _ctx(w: dict, team: str | None, driver: str | None = None) -> RaceContext:
     return RaceContext(total_laps=w["total_laps"], pit_loss=w["pit_loss"], sc_rate=w["sc_rate"], vsc_rate=w["vsc_rate"],
-                       team=team, driver=driver, stop_penalty=w.get("stop_penalty", 0.0), fuel_wear=w.get("fuel_wear", 1.0))
+                       team=team, driver=driver, stop_penalty=w.get("stop_penalty", 0.0), fuel_wear=w.get("fuel_wear", 1.0),
+                       tyre_sets=_sets(w, driver))
 
 
 def best_by_class(opt: Optimizer) -> dict[tuple[int, str], Strategy]:

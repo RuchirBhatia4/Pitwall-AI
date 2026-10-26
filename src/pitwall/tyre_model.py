@@ -307,6 +307,51 @@ def fit_race_model(laps: pd.DataFrame, neutral: dict[str, list[int]], fuel_per_l
     ))
 
 
+RACE_WEAR_MIN_STINT = 6  # laps; shorter stints say little about wear
+
+
+def race_stint_wear(laps: pd.DataFrame, neutral: dict[str, list[int]], fuel_per_lap: float) -> dict[str, dict]:
+    """Each compound's wear as the drivers felt it: the slope of lap time
+    against tyre age within stints (one intercept per driver-stint), with fuel
+    burn added back.
+
+    fit_race_model's wear also learns from pace differences *between* stints
+    (pushing after a stop, engine modes, track evolution). Within stints the
+    2026 compounds drop off alike (soft minus medium -0.010 +- 0.002 s/lap over
+    17 races), while the fitted wear had the soft well above the medium.
+    """
+    df = clean_race_laps(laps, neutral)
+    if df.empty:
+        return {}
+    df = df.assign(sid=df["driver"] + "-" + df["stint"].astype(str))
+    df = df[df["lap"] > df.groupby("sid")["lap"].transform("min")]  # first flying lap: tyres still warming
+    df = df[df.groupby("sid")["lap"].transform("size") >= RACE_WEAR_MIN_STINT]
+    out: dict[str, dict] = {}
+    for c, g in df.groupby("compound"):
+        x = g["tyre_life"].to_numpy(dtype=float)
+        y = g["lap_time"].to_numpy(dtype=float)
+        sid = g["sid"].to_numpy()
+        keep = np.ones(len(y), dtype=bool)
+        for _ in range(4):  # least squares with MAD trimming (traffic, mistakes)
+            dx = x - pd.Series(np.where(keep, x, np.nan)).groupby(sid).transform("mean").to_numpy()
+            dy = y - pd.Series(np.where(keep, y, np.nan)).groupby(sid).transform("mean").to_numpy()
+            ok = keep & np.isfinite(dx)
+            sxx = float(np.sum(dx[ok] ** 2))
+            if sxx < 30:
+                break
+            slope = float(np.sum(dx[ok] * dy[ok]) / sxx)
+            resid = dy - slope * dx
+            mad = float(np.median(np.abs(resid[ok]))) * 1.4826 + 1e-6
+            new_keep = np.isfinite(resid) & (np.abs(resid) < 3.0 * mad)
+            if (new_keep == keep).all():
+                break
+            keep = new_keep
+        if sxx >= 30:
+            out[c] = {"deg": slope + fuel_per_lap, "se": float(np.std(resid[ok]) / np.sqrt(sxx)),
+                      "laps": int(ok.sum()), "stints": int(len(set(sid[ok])))}
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Practice long runs
 # ---------------------------------------------------------------------------
@@ -319,13 +364,48 @@ def _theil_sen(x: np.ndarray, y: np.ndarray) -> float:
     return float(np.median((y[j] - y[i])[ok] / dx[ok]))
 
 
-def practice_long_runs(laps: pd.DataFrame, session_name: str, min_laps: int = 5) -> pd.DataFrame:
-    """Detect race-simulation runs in a practice session.
+# What a practice stint was for is read from its lap times relative to the
+# driver's best lap of the session:
+#   race_sim   >= MIN_RUN_LAPS laps at one steady level, race-start fuel
+#              (RACE_SIM_LEVEL or more off the driver's best)
+#   mid_fuel   a steady run on lighter fuel
+#   quali_sim  push laps (within PUSH_RATIO of the best) between cool-down laps
+#   sprint     a Sprint stint (a real race)
+#   short      anything else: installation, aero and aborted runs
+# Walk-forward on rounds 4-18, the drop-off of heavy-fuel race sims alone
+# predicted the race's within-stint wear best (see summarise_practice).
+PUSH_RATIO = 1.012
+RUN_BAND = 0.02  # race-pace laps of one run sit within +-2% of its level
+RACE_SIM_LEVEL = 1.035
+MIN_RUN_LAPS = 5
+MIN_SPRINT_LAPS = 6
+LONG_RUN_TYPES = ("race_sim", "mid_fuel", "sprint")
 
-    A long run is a stint where >= min_laps laps sit within 3% of the stint's
-    fastest representative pace (filters out cool-down and push laps).
+
+def _race_pace_laps(r: np.ndarray) -> np.ndarray | None:
+    """Indices of a stint's race-pace laps: the densest cluster of non-push
+    laps, minus the lap straight after a cool-down or traffic lap (cooled
+    tyres run artificially quick for a lap)."""
+    cand = np.where((r > PUSH_RATIO) & (r < 1.12))[0]
+    if len(cand) < MIN_RUN_LAPS:
+        return None
+    counts = [(int((np.abs(r[cand] / r[i] - 1) < RUN_BAND).sum()), -r[i], i) for i in cand]
+    _, _, centre = max(counts)
+    idx = cand[np.abs(r[cand] / r[centre] - 1) < RUN_BAND]
+    level = float(np.median(r[idx]))
+    slow = r > level * (1 + RUN_BAND)
+    after_slow = np.r_[False, slow[:-1]]
+    return idx[~after_slow[idx]]
+
+
+def classify_practice_runs(laps: pd.DataFrame, session_name: str) -> pd.DataFrame:
+    """One row per practice stint, labelled by what the team was doing.
+
+    Long runs keep only their race-pace laps (push laps, cool-down / traffic
+    laps and the lap after one are dropped) and carry the Theil-Sen slope of
+    lap time against tyre age (`raw_slope`, fuel burn still in it) and their
+    fuel `level` (median lap time / the driver's best of the session).
     """
-    rows = []
     if laps.empty:
         return pd.DataFrame()
     df = laps[
@@ -335,32 +415,30 @@ def practice_long_runs(laps: pd.DataFrame, session_name: str, min_laps: int = 5)
         & laps["compound"].isin(DRY_COMPOUNDS)
         & laps["tyre_life"].notna()
     ]
-    for (driver, stint), grp in df.groupby(["driver", "stint"]):
-        if len(grp) < min_laps:
-            continue
+    if df.empty:
+        return pd.DataFrame()
+    best = df[~df["deleted"]].groupby("driver")["lap_time"].min()
+    sprint = session_name == "Sprint"
+    rows = []
+    for (driver, _), grp in df.groupby(["driver", "stint"]):
+        grp = grp.sort_values("lap")
         t = grp["lap_time"].to_numpy(dtype=float)
-        ref = np.percentile(t, 20)
-        mask = (t < ref * 1.03) & (t > ref * 0.985)
-        if mask.sum() < min_laps:
-            continue
-        g = grp[mask]
-        age = g["tyre_life"].to_numpy(dtype=float)
-        lt = g["lap_time"].to_numpy(dtype=float)
-        rows.append(
-            {
-                "session": session_name,
-                "driver": driver,
-                "team": g["team"].iloc[0],
-                "compound": g["compound"].iloc[0],
-                "laps": int(mask.sum()),
-                "age_start": float(age.min()),
-                "age_end": float(age.max()),
-                "median_time": float(np.median(lt)),
-                "raw_slope": _theil_sen(age, lt),
-                "ages": age.tolist(),
-                "times": lt.tolist(),
-            }
-        )
+        age = grp["tyre_life"].to_numpy(dtype=float)
+        r = t / best.get(driver, t.min())
+        row = {"session": session_name, "driver": driver, "team": grp["team"].iloc[0], "compound": grp["compound"].iloc[0],
+               "push_laps": int((r <= PUSH_RATIO).sum())}
+        keep = np.where(r < np.median(r) * 1.03)[0] if sprint else _race_pace_laps(r)
+        if keep is not None and len(keep) >= (MIN_SPRINT_LAPS if sprint else MIN_RUN_LAPS):
+            level = float(np.median(r[keep]))
+            kind = "sprint" if sprint else ("race_sim" if level >= RACE_SIM_LEVEL else "mid_fuel")
+            rows.append(row | {
+                "type": kind, "laps": int(len(keep)), "level": level,
+                "age_start": float(age[keep].min()), "age_end": float(age[keep].max()),
+                "median_time": float(np.median(t[keep])), "raw_slope": _theil_sen(age[keep], t[keep]),
+                "ages": age[keep].tolist(), "times": t[keep].tolist(),
+            })
+        else:
+            rows.append(row | {"type": "quali_sim" if row["push_laps"] else "short", "laps": int(len(t)), "level": float(r.min())})
     return pd.DataFrame(rows)
 
 
@@ -395,10 +473,18 @@ def short_run_offsets(session_laps: dict[str, pd.DataFrame]) -> dict[str, dict]:
 
 def summarise_practice(runs: pd.DataFrame, fuel_per_lap: float) -> dict:
     """Per-compound practice estimates of degradation and pace offset (vs MEDIUM)."""
-    out: dict[str, dict] = {"compounds": {}, "teams": {}}
+    out: dict[str, dict] = {"compounds": {}, "runs": {}}
     if runs.empty:
         return out
-    runs = runs.copy()
+    out["runs"] = {k: int(v) for k, v in runs["type"].value_counts().items()}
+    # Only race-start fuel runs: lighter runs, push laps and the Sprint
+    # (short, flat out) drop off differently from a Grand Prix stint.
+    # Walk-forward (rounds 4-18) their drop-off predicted the race's
+    # within-stint wear with 0.025 s/lap mean error, vs 0.037 from every
+    # steady run and 0.032 from the season average alone.
+    runs = runs[runs["type"] == "race_sim"].copy()
+    if runs.empty:
+        return out
     # Fuel burn makes a car faster each lap, hiding true wear: add it back.
     runs["deg"] = runs["raw_slope"] + fuel_per_lap
     # Clip absurd slopes (traffic, mode changes) before aggregating.
@@ -437,26 +523,31 @@ def summarise_practice(runs: pd.DataFrame, fuel_per_lap: float) -> dict:
                 out["compounds"][c]["offset"] = float(np.median(arr))
                 out["compounds"][c]["offset_se"] = float(np.std(arr) / np.sqrt(len(arr)) + 0.1)
                 out["compounds"][c]["offset_pairs"] = int(len(arr))
-    # Team-level degradation (for hierarchical shrinkage later).
-    for (team, c), grp in runs.groupby(["team", "compound"]):
-        out["teams"].setdefault(team, {})[c] = {
-            "deg": float(np.average(grp["deg"], weights=grp["laps"])),
-            "laps": int(grp["laps"].sum()),
-        }
+    # No team-level wear from practice: walk-forward, a team's race-sim
+    # drop-off relative to the field did not predict its race wear relative
+    # to the field (rank correlation 0.03 over 73 team-compound weekends).
     return out
 
 
 # ---------------------------------------------------------------------------
 # Combining evidence
 # ---------------------------------------------------------------------------
-def season_prior(race_models: list[TyreModel]) -> TyreModel:
-    """Aggregate earlier race fits into a prior (mean and between-race spread)."""
+def season_prior(race_models: list[TyreModel], wear: list[dict[str, float]] | None = None) -> TyreModel:
+    """Aggregate earlier race fits into a prior (mean and between-race spread).
+
+    wear: per race, compound -> wear to use instead of the fitted one (the
+    within-stint wear of race_stint_wear); compounds missing from it are left
+    out of that race's wear evidence.
+    """
     if not race_models:
         return default_model()
     base = default_model()
     comps: dict[str, CompoundParams] = {}
     for c in DRY_COMPOUNDS:
-        degs = [m.compounds[c].deg for m in race_models if c in m.compounds]
+        if wear is not None:
+            degs = [w[c] for w in wear if c in w]
+        else:
+            degs = [m.compounds[c].deg for m in race_models if c in m.compounds]
         offs = [m.compounds[c].offset for m in race_models if c in m.compounds]
         stints = [m.compounds[c].max_stint for m in race_models if c in m.compounds]
         d0 = base.compounds[c]
@@ -589,21 +680,10 @@ def weekend_model(
         max_stint = (max_stint_hint or {}).get(c, p.max_stint)
         comps[c] = CompoundParams(off, max(deg, 0.005), off_sd, deg_sd, int(max_stint), laps)
 
-    # Hierarchical team effects: team deviation from the practice field mean,
-    # shrunk by evidence (laps / (laps + TEAM_SHRINK_LAPS)).
-    team_deg: dict[str, dict[str, float]] = {}
-    for team, by_c in practice.get("teams", {}).items():
-        for c, v in by_c.items():
-            if c not in pc:
-                continue
-            w = v["laps"] / (v["laps"] + TEAM_SHRINK_LAPS)
-            team_deg.setdefault(team, {})[c] = float(w * (v["deg"] - pc[c]["deg"]))
-
     return enforce_compound_order(TyreModel(
         compounds=comps,
         fuel_per_lap=prior.fuel_per_lap,
         quad=prior.quad,
-        team_deg=team_deg,
         driver_pace={},
         noise_sd=prior.noise_sd,
         source=f"{prior.source} + practice",
@@ -641,19 +721,6 @@ def live_update(model: TyreModel, stint_obs: list[dict], driver_team: str | None
         p.evidence_laps += int(w.sum())
     updated.source = model.source + " + live"
     return updated, evidence
-
-
-def apply_behaviour(model: TyreModel, behaviour: dict | None) -> TyreModel:
-    """Apply revealed-preference corrections learned from teams' past choices.
-
-    soft_mult scales SOFT wear: a linear wear curve misses the soft's thermal
-    degradation / cliff on race fuel, which teams clearly price in (they rarely
-    race it for long). Returns a copy.
-    """
-    out = TyreModel.from_dict(model.to_dict())
-    if behaviour and "SOFT" in out.compounds:
-        out.compounds["SOFT"].deg *= float(behaviour.get("soft_mult", 1.0))
-    return out
 
 
 # ---------------------------------------------------------------------------

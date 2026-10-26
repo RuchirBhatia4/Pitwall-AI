@@ -52,6 +52,39 @@ class RaceContext:
     # intermediates or wets in the race. Live, a car that has used wet tyres is
     # free to finish on one dry compound, so the rule is switched off for it.
     two_compound_rule: bool = True
+    # Tyre sets left for the race: compound -> (new sets, age in laps of the
+    # freshest used set). A stop takes a new set while any are left, then the
+    # used one. None: a new set at every stop.
+    tyre_sets: dict | None = None
+
+
+def stint_set_ages(seq: list[str], tyre_sets: dict | None, on_car_age: int | None = None) -> list[int]:
+    """Laps already on the set each stint of `seq` starts on.
+
+    tyre_sets: compound -> (new sets left, age in laps of the freshest used
+    set), see RaceContext.tyre_sets; a stint takes a new set while any are
+    left, then the used one. on_car_age: live, the first stint is the set on
+    the car (its age); pre-race (None) the first stint draws from the sets too.
+    """
+    sets = tyre_sets or {}
+    ages, uses = [], {}
+    for j, c in enumerate(seq):
+        if j == 0 and on_car_age is not None:
+            ages.append(int(on_car_age))
+            continue
+        uses[c] = uses.get(c, 0) + 1
+        new, used_age = sets.get(c, (99, 0))
+        ages.append(0 if uses[c] <= new else int(used_age))
+    return ages
+
+
+def sets_left(tyre_sets: dict | None, compounds_used: list[str] | tuple[str, ...]) -> dict | None:
+    """Live: new sets still unused once the car has raced `compounds_used`
+    (one new set per compound raced; repeat stints on a compound are not
+    tracked by the timing feeds)."""
+    if not tyre_sets:
+        return None
+    return {c: (max(int(new) - (c in compounds_used), 0), age) for c, (new, age) in tyre_sets.items()}
 
 
 @dataclass
@@ -95,7 +128,7 @@ class Optimizer:
         self.L = L
         laps = np.arange(L + 2, dtype=float)
         self.wear_w = 1.0 + ctx.fuel_wear * np.clip((L - laps) / L, 0, 1)
-        self._fresh: dict[str, np.ndarray] = {}
+        self._fresh: dict[tuple[str, int], np.ndarray] = {}
 
     # -- stint costs --------------------------------------------------------
     def _lap_cost(self, compound: str, ages: np.ndarray, laps: np.ndarray) -> np.ndarray:
@@ -103,23 +136,26 @@ class Optimizer:
         k = self.model.deg_for(compound, self.ctx.team, self.ctx.driver)
         return p.offset + k * ages * self.wear_w[laps] + self.model.quad * ages**2
 
-    def fresh_matrix(self, compound: str) -> np.ndarray:
-        """M[s, e] = tyre time of a new-tyre stint covering laps s..e (inclusive)."""
-        if compound in self._fresh:
-            return self._fresh[compound]
+    def fresh_matrix(self, compound: str, age0: int = 0) -> np.ndarray:
+        """M[s, e] = tyre time of a stint covering laps s..e (inclusive) on a
+        set that has already done age0 laps (0 = new)."""
+        if (compound, age0) in self._fresh:
+            return self._fresh[(compound, age0)]
         L = self.L
         M = np.full((L + 2, L + 2), INF)
         max_len = self.model.compounds[compound].max_stint
         n = np.arange(1, L + 1)
         for s in range(1, L + 1):
             laps = n[n >= s]
-            ages = (laps - s + 1).astype(float)
+            ages = (laps - s + 1 + age0).astype(float)
             cum = np.cumsum(self._lap_cost(compound, ages, laps))
-            lengths = laps - s + 1
-            cum[lengths > max_len] = INF
+            cum[ages > max_len] = INF
             M[s, laps] = cum
-        self._fresh[compound] = M
+        self._fresh[(compound, age0)] = M
         return M
+
+    def set_ages(self, seq: list[str], state: TyreState) -> list[int]:
+        return stint_set_ages(seq, self.ctx.tyre_sets, state.age if state.compound is not None else None)
 
     def current_cost(self, compound: str, age: int, start: int) -> np.ndarray:
         """c[e] = tyre time from lap `start` to lap e on the current (used) set."""
@@ -147,18 +183,20 @@ class Optimizer:
             P[state.lap + 1] = state.pit_cost_now + self.ctx.stop_penalty  # box at end of the lap being driven
         return P
 
-    def _suffix(self, seq: list[str], P: np.ndarray, min_stint: int):
-        """H[j][s]: best time for laps s..L using seq[j:], new tyres at s."""
+    def _suffix(self, seq: list[str], P: np.ndarray, min_stint: int, ages: list[int] | None = None):
+        """H[j][s]: best time for laps s..L using seq[j:], fresh set at s
+        (sets of ages[j] laps; default new)."""
         L = self.L
+        ages = ages or [0] * len(seq)
         H = [np.full(L + 2, INF) for _ in seq]
         arg = [np.zeros(L + 2, dtype=int) for _ in seq]
-        last = self.fresh_matrix(seq[-1])
+        last = self.fresh_matrix(seq[-1], ages[-1])
         H[-1][1 : L + 1] = last[1 : L + 1, L]
         lengths = L - np.arange(1, L + 1) + 1
         H[-1][1 : L + 1][lengths < min_stint] = INF
         e_idx = np.arange(L + 2)
         for j in range(len(seq) - 2, -1, -1):
-            M = self.fresh_matrix(seq[j])
+            M = self.fresh_matrix(seq[j], ages[j])
             nxt = np.full(L + 2, INF)
             nxt[: L + 1] = H[j + 1][1 : L + 2]  # nxt[e] = H[j+1][e+1]
             T = M + P[None, :] + nxt[None, :]
@@ -172,7 +210,7 @@ class Optimizer:
     def _first_costs(self, seq: list[str], state: TyreState) -> tuple[np.ndarray, int]:
         start = state.lap + 1
         if state.compound is None:
-            return self.fresh_matrix(seq[0])[start].copy(), start
+            return self.fresh_matrix(seq[0], self.set_ages(seq[:1], state)[0])[start].copy(), start
         return self.current_cost(state.compound, state.age, start), start
 
     def evaluate(self, seq: list[str], pit_laps: list[int], state: TyreState, P: np.ndarray | None = None) -> float:
@@ -183,12 +221,13 @@ class Optimizer:
         if any(b2 <= b1 for b1, b2 in zip(bounds, bounds[1:])):
             return INF
         total = 0.0
+        ages = self.set_ages(seq, state)
         for i, c in enumerate(seq):
             s, e = bounds[i], bounds[i + 1] - 1
             if i == 0 and state.compound is not None:
                 total += self.current_cost(state.compound, state.age, start)[e]
             else:
-                total += self.fresh_matrix(c)[s, e]
+                total += self.fresh_matrix(c, ages[i])[s, e]
             if i < len(pit_laps):
                 total += P[pit_laps[i]]
         return float(total)
@@ -220,7 +259,7 @@ class Optimizer:
                     continue
                 results.append(Strategy(seq, [], float(total)))
                 continue
-            H, arg = self._suffix(seq[1:], P, min_stint)
+            H, arg = self._suffix(seq[1:], P, min_stint, self.set_ages(seq, state)[1:])
             nxt = np.full(self.L + 2, INF)
             nxt[: self.L + 1] = H[0][1 : self.L + 2]
             totals = first + P + nxt
@@ -273,7 +312,7 @@ class Optimizer:
             return None
         P = self._pit_cost(state)
         first, start = self._first_costs(seq, state)
-        H, arg = self._suffix(seq[1:], P, self.ctx.min_stint)
+        H, arg = self._suffix(seq[1:], P, self.ctx.min_stint, self.set_ages(seq, state)[1:])
         nxt = np.full(self.L + 2, INF)
         nxt[: self.L + 1] = H[0][1 : self.L + 2]
         totals = first + P + nxt
@@ -304,7 +343,7 @@ class Optimizer:
             if len(seq) < 2:
                 continue
             first, _ = self._first_costs(seq, state)
-            H, _ = self._suffix(seq[1:], P, self.ctx.min_stint)
+            H, _ = self._suffix(seq[1:], P, self.ctx.min_stint, self.set_ages(seq, state)[1:])
             if lap + 1 > self.L:
                 continue
             total = first[lap] + P[lap] + H[0][lap + 1]
@@ -330,11 +369,12 @@ class Optimizer:
 
     def _stints(self, strat: Strategy, state: TyreState) -> list[dict]:
         bounds = [state.lap + 1] + [p + 1 for p in strat.pit_laps] + [self.L + 1]
+        ages = self.set_ages(strat.sequence, state)
         out = []
         for i, c in enumerate(strat.sequence):
             s, e = bounds[i], bounds[i + 1] - 1
-            age0 = state.age if (i == 0 and state.compound) else 0
-            out.append({"compound": c, "start_lap": s, "end_lap": e, "laps": e - s + 1, "age_start": age0, "new": not (i == 0 and state.compound)})
+            on_car = i == 0 and state.compound is not None
+            out.append({"compound": c, "start_lap": s, "end_lap": e, "laps": e - s + 1, "age_start": ages[i], "new": not on_car and ages[i] == 0})
         return out
 
     # -- Monte Carlo risk -----------------------------------------------------

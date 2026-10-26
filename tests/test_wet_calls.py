@@ -102,6 +102,16 @@ def test_drizzle_that_does_not_slow_the_field_does_not_hold_dry_strategy():
     assert c["changing"] and not c["unsettled"]
 
 
+def test_oil_flag_in_one_sector_is_not_rain():
+    # Austin 2026: "slippery in sector n" (oil/debris) held every dry stop in the pit window
+    cars = [car(f"D{i}", i + 1, 20, [("MEDIUM", 1)], lambda l, c: 90.0) for i in range(10)]
+    rc = [{"lap": 19, "message": "TRACK SURFACE SLIPPERY IN TRACK SECTOR 3"}]
+    c = assess_conditions(state(cars, rc=rc))
+    assert not c["unsettled"]
+    wet_rc = [{"lap": 19, "message": "WET TRACK DECLARED"}]
+    assert assess_conditions(state(cars, rc=wet_rc))["unsettled"]
+
+
 def test_drying_track_holds_a_dry_stop():
     # field pace improving ~2.5 %/lap for the last laps, and a soft past its life that the dry maths wants to box
     drying = lambda l, c: 100.0 * (0.975 ** max(0, l - 14)) if l > 14 else 100.0

@@ -2,6 +2,7 @@
 
 Everything about round R is estimated from:
   * race fits of rounds < R (season prior, SC rates, pit-loss fallback),
+  * the same circuit's 2024-25 races (Safety Car / VSC record, see track_history),
   * round R's practice / sprint sessions,
   * round R's qualifying (grid only).
 The finished race of round R is used only for evaluation, never for the
@@ -16,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from src.pitwall.race_data import (
+    _int_or_none,
     event_sessions,
     load_session,
     measure_pit_loss,
@@ -24,6 +26,7 @@ from src.pitwall.race_data import (
     qualifying_grid,
     stints_from_laps,
 )
+from src.pitwall import track_history
 from src.pitwall.season import SEASON_DIR, get_schedule
 from src.pitwall.tyre_model import (
     TyreModel,
@@ -45,6 +48,10 @@ from src.pitwall.tyre_model import (
 YEAR = 2026
 FITS_DIR = SEASON_DIR / str(YEAR) / "fits"
 PRACTICE_SESSIONS = ("Practice 1", "Practice 2", "Practice 3", "Sprint")
+# Weight (in laps) of the 2026 season-wide Safety Car / VSC rate against a
+# circuit's own 2024-25 record: ~2 races, so two quiet years at a track pull
+# its rate down but cannot zero it.
+VENUE_SC_PRIOR_LAPS = 120.0
 # Official race distances for events not yet run (laps). Completed races use
 # the classified lap count.
 SCHEDULED_LAPS = {"Kuala Lumpur": 56, "Marina Bay": 62, "Austin": 56, "Mexico City": 71,
@@ -187,10 +194,19 @@ def build_weekend(rnd: int) -> dict:
     own = race_fit(rnd) if finished else None
     location = str(ev["Location"])
     total_laps = own["total_laps"] if own else SCHEDULED_LAPS.get(location, 57)
+    venue = track_history.venue_history(location)
     # Pit-lane loss is a fixed property of the circuit that teams know before
-    # the weekend, so the measured value is allowed here; otherwise fall back
-    # to the season median.
-    pit_loss = (own or {}).get("pit_loss") or stats["pit_loss_median"]
+    # the weekend, so the measured value is allowed here. Before the race: this
+    # circuit's 2024-25 loss weighted 2:1 against the 2026 season median (best
+    # on 2026 rounds: 2.2 s mean error vs 2.7 s for the median alone).
+    pit_loss = (own or {}).get("pit_loss")
+    if not pit_loss:
+        pit_loss = (2 * venue["pit_loss"] + stats["pit_loss_median"]) / 3 if venue.get("pit_loss") else stats["pit_loss_median"]
+    # Safety Cars cluster at some circuits (street tracks, walls, lap-1 pile-ups):
+    # blend this circuit's earlier seasons with the 2026 season rate.
+    m = VENUE_SC_PRIOR_LAPS
+    sc_rate = (venue["sc_starts"] + stats["sc_rate"] * m) / (venue["laps"] + m)
+    vsc_rate = (venue["vsc_starts"] + stats["vsc_rate"] * m) / (venue["laps"] + m)
 
     grid = qualifying_grid(YEAR, rnd)
     drivers = []
@@ -201,7 +217,7 @@ def build_weekend(rnd: int) -> dict:
             drivers.append({
                 "driver": str(r["Abbreviation"]), "number": str(r["DriverNumber"]),
                 "name": str(r.get("FullName") or r["Abbreviation"]), "team": str(r.get("TeamName") or ""),
-                "color": "#" + color.lstrip("#"), "grid": grid.get(str(r["Abbreviation"])),
+                "color": "#" + color.lstrip("#"), "grid": grid.get(str(r["Abbreviation"])), "quali": _int_or_none(r.get("Position")),
                 "headshot": str(r.get("HeadshotUrl") or "") or None,
             })
     except Exception:
@@ -226,8 +242,11 @@ def build_weekend(rnd: int) -> dict:
         "format": str(ev["EventFormat"]),
         "total_laps": int(total_laps),
         "pit_loss": float(pit_loss),
-        "sc_rate": stats["sc_rate"],
-        "vsc_rate": stats["vsc_rate"],
+        "sc_rate": sc_rate,
+        "vsc_rate": vsc_rate,
+        "season_sc_rate": stats["sc_rate"],
+        "season_vsc_rate": stats["vsc_rate"],
+        "venue_history": venue,
         "prior_races": stats["races"],
         "transfer": stats["transfer"],
         "offset_transfer": stats["offset_transfer"],

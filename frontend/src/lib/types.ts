@@ -54,8 +54,21 @@ export interface WearProfile {
   team: string;
 }
 
+export interface SimOption {
+  sequence: Compound[];
+  pit_laps: number[];
+  stops: number;
+  name: string;
+  expected_position: number;
+  position_sd: number;
+  p_points: number;
+  expected_points: number;
+  p_best: number;
+}
+
 export interface Prediction {
   alternatives: Strategy[];
+  racesim?: { best: SimOption; options: SimOption[] };
   stop_probabilities?: Record<string, number>;
   wear_profile?: WearProfile | null;
   predicted?: Strategy;
@@ -126,6 +139,27 @@ export interface Metrics {
   likely_compound_set_accuracy?: number | null;
   likely_start_compound_accuracy?: number | null;
   likely_first_stop_mae?: number | null;
+  sim_stops_accuracy?: number | null;
+  sim_compound_set_accuracy?: number | null;
+  sim_start_compound_accuracy?: number | null;
+  sim_first_stop_mae?: number | null;
+  forecast_order_rho?: number;
+  grid_order_rho?: number;
+}
+
+export interface RaceForecast {
+  sims: number;
+  params: {
+    pass_a_2026: number;
+    venue_offset: number;
+    venue_races: number;
+    pace_coef: number[];
+    p_pass_equal_pace: number;
+    p_pass_1s_faster: number;
+    pace_sd: number;
+  };
+  drivers: Record<string, { expected_position: number; p_win: number; p_podium: number; p_points: number; expected_points: number }>;
+  pace: Record<string, number>;
 }
 
 export interface PracticeRun {
@@ -147,6 +181,9 @@ export interface Weekend {
   pit_loss: number;
   sc_rate: number;
   vsc_rate: number;
+  season_sc_rate?: number;
+  season_vsc_rate?: number;
+  venue_history?: { races: number; sc_starts: number; vsc_starts: number; laps: number; pass_races: number; pass_offset: number | null; pit_loss?: number | null };
   prior_races: number;
   transfer: { beta: number; sd: number; n: number; source: string };
   offset_transfer: { beta: number; sd: number; n: number; source: string };
@@ -185,6 +222,7 @@ export interface RaceFile {
     track_temp: number | null;
     air_temp: number | null;
   };
+  race_forecast?: RaceForecast | null;
   metrics: Metrics | null;
 }
 
@@ -229,6 +267,19 @@ export interface Backtest {
     compound_set_accuracy: number;
     start_compound_accuracy: number;
     first_stop_mae: number;
+  };
+  racesim?: {
+    description: string;
+    driver_races: number;
+    stops_accuracy: number;
+    compound_set_accuracy: number;
+    start_compound_accuracy: number;
+    first_stop_mae: number | null;
+    uses_hard: number;
+    actual_uses_hard: number;
+    physics_on_same_rows: { stops_accuracy: number; compound_set_accuracy: number; start_compound_accuracy: number; first_stop_mae: number | null; uses_hard: number };
+    finishing_order_rho?: number;
+    grid_order_rho?: number;
   };
 }
 
@@ -335,6 +386,7 @@ export interface Analysis {
   } | null;
   threats?: { type: "undercut_threat" | "undercut_opportunity"; driver: string; gap: number | null; gain: number; live: boolean }[];
   rivals?: { driver: string; position: number | null; compound: string; tyre_age: number; next_stop: number | null; next_compound: string | null; plan: string }[];
+  race_sim?: { sims: number; position_now: number | null; options: SimOption[]; error?: undefined } | { error: string; options?: undefined } | null;
   tyre_curve?: { compound: string; ages: number[]; predicted: number[]; band: number; observed: { age: number; delta: number }[] } | null;
   drift?: { z: number; alert: boolean; message: string } | null;
 }

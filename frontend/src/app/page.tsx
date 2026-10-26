@@ -115,7 +115,7 @@ export default function Home() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="2026 races modelled" value={`${done} / ${season.rounds.length}`} sub="every finished round, plus the next one" />
         <Stat label="Optimiser" value="Exact DP" sub="0–3 stops × every pit lap, ~10 ms" />
-        <Stat label="Risk model" value="Monte Carlo" sub="SC/VSC + parameter uncertainty" />
+        <Stat label="Race simulation" value="Full field" sub="traffic, overtaking, SC/VSC — plans ranked by finishing position" />
         <Stat
           label="Prediction interval coverage"
           value={bt ? pct(bt.conformal_coverage) : "—"}
@@ -152,6 +152,7 @@ export default function Home() {
               <thead className="text-text-3 text-left">
                 <tr className="border-b border-line">
                   <th className="py-2 pr-4 font-medium">Metric</th>
+                  {bt.racesim && <th className="py-2 pr-4 font-medium">Race simulation</th>}
                   <th className="py-2 pr-4 font-medium">Hybrid (physics + behaviour ML)</th>
                   <th className="py-2 pr-4 font-medium">Physics optimiser only</th>
                   <th className="py-2 pr-4 font-medium">Naive baseline</th>
@@ -166,7 +167,7 @@ export default function Home() {
                     ["First-stop lap error (mean)", "first_stop_mae", false],
                   ] as const
                 ).map(([label, key, higher]) => {
-                  const vals = [bt.hybrid?.[key], bt[key], bt.baseline[key]];
+                  const vals = [...(bt.racesim ? [bt.racesim[key] ?? undefined] : []), bt.hybrid?.[key], bt[key], bt.baseline[key]];
                   const fmt = (v?: number) => (v == null ? "—" : higher ? pct(v) : `${v.toFixed(1)} laps`);
                   const known = vals.filter((v): v is number => v != null);
                   const best = higher ? Math.max(...known) : Math.min(...known);
@@ -185,6 +186,7 @@ export default function Home() {
             </table>
           </div>
           <p className="mt-3 text-xs text-text-3">
+            {bt.racesim && <>Race simulation: {bt.racesim.description} ({bt.racesim.driver_races} driver-races). </>}
             Hybrid: {bt.hybrid?.description ?? "not built"}. Baseline: {bt.baseline.description}. Best value per row in green. Predicting team behaviour from public data is hard — race incidents, team orders and track position drive many calls. The engine&apos;s main job is
             decision support (what is fastest from here, and how risky), which the live pit wall and what-if tools expose.
           </p>

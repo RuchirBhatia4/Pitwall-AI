@@ -29,8 +29,9 @@ from collections import defaultdict
 
 import numpy as np
 
-from src.pitwall.optimizer import SC_PIT_FACTOR, VSC_PIT_FACTOR, Optimizer, RaceContext, TyreState
+from src.pitwall.optimizer import FUEL_WEAR_FACTOR, SC_PIT_FACTOR, SHORT, VSC_PIT_FACTOR, Optimizer, RaceContext, TyreState
 from src.pitwall.race_data import DRY_COMPOUNDS
+from src.pitwall.race_sim import Plan, RaceSim, params_from_forecast
 from src.pitwall.tyre_model import (
     LIVE_MIN_STINT_LAPS,
     LIVE_PRIOR_SD_MIN,
@@ -59,9 +60,15 @@ WAIT_COST_NEUTRAL = 8.0  # s lost by passing up an SC/VSC stop ...
 P_BEST_NEUTRAL = 0.6  # ... or Monte Carlo P(best) of the boxing plan
 CROSSOVER_HORIZON = 12  # laps a slick/wet pace gap is assumed to last
 CROSSOVER_MARGIN = 2.0  # s of net gain required before switching tyre type
-RC_WET = re.compile(r"\b(WET|RAIN(?:ING)?|SLIPPERY|INTERMEDIATE)\b")
+# "TRACK SURFACE SLIPPERY IN TRACK SECTOR n" is oil or debris in one sector and
+# appears in dry races (it held every stop in Austin's pit windows), so it is
+# not a wet-track sign; real rain shows up in tyres, lap times and the weather.
+RC_WET = re.compile(r"\b(WET|RAIN(?:ING)?|INTERMEDIATE)\b")
 OUTLAP_WARMUP = 0.8  # s lost on the out-lap while new tyres come in (undercut maths)
 BAND_Z = 1.2816  # 80% central interval
+LIVE_SIMS = 80  # full-field race simulations per live update
+LIVE_PACE_PRIOR_LAPS = 8.0  # clean laps before a car's live pace outweighs its pre-race estimate
+_sim_cache: dict[tuple, dict] = {}
 
 
 def _clean_stints(car: dict, fuel: float, exclude: frozenset[int] = frozenset()) -> list[dict]:
@@ -240,6 +247,62 @@ def crossover(cars: list[dict], car: dict, stop_cost: float, laps_left: int) -> 
             "gain_per_lap": None if gain is None else round(gain, 2), "needed_per_lap": round(need, 2), "switch": switch}
 
 
+def live_pace(cars: list[dict], model: TyreModel, prior: dict[str, float], exclude: frozenset[int] = frozenset()) -> dict[str, float]:
+    """Each car's race pace vs the field (s/lap) from its own clean laps so far
+    (tyre- and fuel-corrected), shrunk toward the pre-race estimate."""
+    raw, n = {}, {}
+    for c in cars:
+        res = []
+        for st in _clean_stints(c, model.fuel_per_lap, exclude):
+            if st["compound"] not in model.compounds:
+                continue
+            ages = np.asarray(st["ages"])
+            t = np.asarray(st["times"]) + model.fuel_per_lap * np.asarray(st["laps"])
+            res += list(t - model.lap_delta(st["compound"], ages, c.get("team"), c["driver"]))
+        if res:
+            raw[c["driver"]], n[c["driver"]] = float(np.median(res[-10:])), min(len(res), 10)
+    if len(raw) < 5:
+        return dict(prior)
+    med = float(np.median(list(raw.values())))
+    out = dict(prior)
+    for d, v in raw.items():
+        w = n[d] / (n[d] + LIVE_PACE_PRIOR_LAPS)
+        out[d] = float(w * np.clip(v - med, -3.0, 3.0) + (1 - w) * prior.get(d, 0.0))
+    return out
+
+
+def live_race_sim(state: dict, weekend: dict, model: TyreModel, ctx: RaceContext, car: dict, plans: list, rival_plans: dict[str, Plan],
+                  exclude: frozenset[int]) -> dict | None:
+    """Expected finishing position of each candidate plan, simulating the rest of
+    the race for the whole field from the current gaps and tyres."""
+    params = params_from_forecast(weekend.get("race_forecast"))
+    running = [c for c in state["cars"] if not c["retired"] and c.get("gap_to_leader") is not None]
+    if params is None or len(running) < 5 or car not in running:
+        return None
+    k = int(car["laps_completed"])
+    key = (state.get("source"), state.get("round"), car["driver"], k, state["track_status"], len(running))
+    if key in _sim_cache:
+        return _sim_cache[key]
+    params.pace = live_pace(running, model, params.pace, exclude)
+    gaps = {c["driver"]: float(c["gap_to_leader"]) for c in running}
+    tyres = {c["driver"]: (c["compound"], int(c["tyre_age"])) for c in running}
+    neutral = {"SC": 2, "VSC": 1, "VSC_ENDING": 1}.get(state["track_status"], 0)
+    # Same wear-vs-fuel setting as the validated pre-race simulation.
+    sim_ctx = RaceContext(**{**ctx.__dict__, "fuel_wear": FUEL_WEAR_FACTOR})
+    sim = RaceSim(model, sim_ctx, [{"driver": c["driver"], "team": c.get("team")} for c in running], params, sims=LIVE_SIMS,
+                  start_lap=k, gaps=gaps, tyres=tyres, neutral_now=neutral)
+    field = {c["driver"]: rival_plans.get(c["driver"], Plan([c["compound"]], [])) for c in running}
+    ranked = sim.best_response(car["driver"], [Plan.of(p) for p in plans], field)
+    out = {"sims": LIVE_SIMS, "position_now": car.get("position"),
+           "options": [{"name": "-".join(SHORT.get(c, c[0]) for c in o["plan"].sequence), "sequence": o["plan"].sequence, "pit_laps": o["plan"].pit_laps,
+                        "stops": len(o["plan"].pit_laps)} | {x: round(o[x], 3) for x in ("expected_position", "position_sd", "p_points", "expected_points", "p_best")}
+                       for o in ranked]}
+    if len(_sim_cache) > 64:
+        _sim_cache.clear()
+    _sim_cache[key] = out
+    return out
+
+
 def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
     cars = state["cars"]
     car = next((c for c in cars if c["driver"] == driver), None)
@@ -411,6 +474,7 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
 
     # rival predictions (cheap: deterministic, <=2 stops)
     rivals = []
+    rival_plans: dict[str, Plan] = {}
     for c in running:
         if c["driver"] == driver or c["compound"] not in model.compounds:
             continue
@@ -420,9 +484,18 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
                        used=tuple(x for x in c.get("compounds_used", []) if x in DRY_COMPOUNDS), pit_cost_now=pit_now)
         r = Optimizer(model, rc).optimise(st, max_stops=2, top=1)
         if r:
+            rival_plans[c["driver"]] = Plan.of(r[0])
             rivals.append({"driver": c["driver"], "position": c["position"], "compound": c["compound"], "tyre_age": c["tyre_age"],
                            "next_stop": r[0].pit_laps[0] if r[0].pit_laps else None,
                            "next_compound": r[0].sequence[1] if len(r[0].sequence) > 1 else None, "plan": r[0].name})
+
+    # full-field race simulation from here: where does each plan finish?
+    race_sim = None
+    if not (car["compound"] in WET_COMPOUNDS or cond["cars_on_wets"] or cond["unsettled"]):
+        try:
+            race_sim = live_race_sim(state, weekend, model, ctx, car, plans, rival_plans, excl)
+        except Exception as exc:  # never let the simulation take the pit call down
+            race_sim = {"error": f"{type(exc).__name__}: {exc}"}
 
     # tyre curve + drift monitor for the current stint
     curve = None
@@ -475,6 +548,7 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
         "rejoin": rejoin,
         "threats": threats,
         "rivals": sorted(rivals, key=lambda r: r["position"] or 99),
+        "race_sim": race_sim,
         "tyre_curve": curve,
         "drift": drift,
     }

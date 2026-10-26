@@ -203,7 +203,8 @@ def _int_or_none(value) -> int | None:
 
 
 def qualifying_grid(year: int, rnd: int) -> dict[str, int]:
-    """Driver -> qualifying position (used as the predicted grid before the race)."""
+    """Driver -> starting slot before the race: the official starting grid
+    (grid penalties applied) once published, otherwise the qualifying order."""
     try:
         q = load_session(year, rnd, "Qualifying")
     except Exception:
@@ -213,7 +214,15 @@ def qualifying_grid(year: int, rnd: int) -> dict[str, int]:
         pos = _int_or_none(r.get("Position"))
         if pos:
             grid[str(r["Abbreviation"])] = pos
-    return grid
+    try:
+        from src.pitwall.openf1_data import starting_grid
+
+        official = starting_grid(year, event_sessions(year, rnd)["Qualifying"])
+    except Exception:  # not published yet, or OpenF1 unreachable
+        official = {}
+    abbr = {str(r["DriverNumber"]): str(r["Abbreviation"]) for _, r in q.results.iterrows()}
+    official = {abbr[n]: p for n, p in official.items() if n in abbr}
+    return official if len(official) >= max(min(10, len(grid)), len(grid) - 2) else grid
 
 
 def measure_pit_loss(laps: pd.DataFrame, neutral: dict[str, list[int]]) -> float | None:

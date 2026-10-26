@@ -58,7 +58,7 @@ export function ChatDock() {
     <>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-full bg-accent px-4 py-3 font-semibold shadow-2xl shadow-black/50 hover:brightness-110"
+        className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-full bg-accent px-4 py-3 font-semibold text-on-accent shadow-2xl shadow-black/50 hover:brightness-110"
         aria-label="Ask the pit wall"
       >
         {open ? <X size={18} /> : <MessageSquare size={18} />}
@@ -67,7 +67,7 @@ export function ChatDock() {
       {open && (
         <div className="fixed bottom-20 right-4 left-4 sm:left-auto z-50 sm:w-[420px] h-[min(620px,75vh)] card flex flex-col shadow-2xl shadow-black/60">
           <div className="flex items-center gap-2 border-b border-line px-4 py-3">
-            <Bot size={18} className="text-accent" />
+            <Bot size={18} className="text-accent-ink" />
             <div>
               <div className="font-semibold leading-tight">Race engineer</div>
               <div className="text-xs text-text-3">Answers come from the strategy engine{mode ? ` · ${mode}` : ""}</div>
@@ -86,7 +86,7 @@ export function ChatDock() {
             )}
             {msgs.map((m, i) => (
               <div key={i} className={clsx("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-                <div className={clsx("max-w-[88%] rounded-2xl px-3 py-2 whitespace-pre-wrap", m.role === "user" ? "bg-accent/90 text-white" : "bg-surface-2 text-text")}>
+                <div className={clsx("max-w-[88%] rounded-2xl px-3 py-2 whitespace-pre-wrap", m.role === "user" ? "bg-accent/90 text-on-accent" : "bg-surface-2 text-text")}>
                   {m.content}
                   {m.tools && m.tools.length > 0 && <div className="mt-1.5 text-[10px] text-text-3">engine calls: {m.tools.join(", ")}</div>}
                 </div>
@@ -112,7 +112,7 @@ export function ChatDock() {
               placeholder="e.g. Best strategy for Norris at Monza?"
               className="flex-1 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm outline-none focus:border-line-strong"
             />
-            <button type="submit" disabled={busy} className="rounded-lg bg-accent px-3 disabled:opacity-50" aria-label="Send">
+            <button type="submit" disabled={busy} className="rounded-lg bg-accent px-3 text-on-accent disabled:opacity-50" aria-label="Send">
               <Send size={16} />
             </button>
           </form>

@@ -13,6 +13,8 @@ import { TyreBadge, compoundName } from "@/components/Tyre";
 import { LiveTyreCurve } from "@/components/Charts";
 import { PlanTable } from "@/components/PlanTable";
 import { StopOdds } from "@/components/StopOdds";
+import { useTeam } from "@/components/TeamTheme";
+import { StrategyLoader } from "@/components/Brand";
 
 type SourceKind = "openf1" | "signalr" | "replay" | "manual";
 
@@ -36,7 +38,7 @@ const STATUS_STYLE: Record<string, string> = {
 function CallCard({ a }: { a: Analysis }) {
   const c = a.call;
   const tone =
-    c.action === "BOX_NOW" ? "border-accent bg-accent/10"
+    c.action === "BOX_NOW" ? "border-alert bg-alert/10"
     : c.action === "BOX_SOON" || c.action === "WINDOW_OPEN" ? "border-warn bg-warn/10"
     : c.action === "HOLD" ? "border-line bg-surface-2"
     : "border-good/50 bg-good/5";
@@ -51,7 +53,7 @@ function CallCard({ a }: { a: Analysis }) {
           </div>
         )}
       </div>
-      <div className={clsx("mt-2 text-3xl sm:text-4xl font-bold tracking-tight", c.action === "BOX_NOW" && "text-accent")}>{c.headline}</div>
+      <div className={clsx("mt-2 text-3xl sm:text-4xl font-bold tracking-tight", c.action === "BOX_NOW" && "text-alert")}>{c.headline}</div>
       {c.reason && <div className="mt-2 text-sm text-text-2 max-w-2xl">{c.reason}</div>}
       {cond?.changing && (
         <div className="mt-3 inline-flex flex-wrap items-center gap-2 rounded-lg border border-line px-2.5 py-1 text-xs text-text-2">
@@ -90,6 +92,7 @@ function CallCard({ a }: { a: Analysis }) {
 }
 
 function TimingTower({ state, selected, onSelect }: { state: RaceState; selected: string | null; onSelect: (d: string) => void }) {
+  const { isMine } = useTeam();
   return (
     <div className="overflow-hidden rounded-xl border border-line">
       <table className="w-full text-sm tabular">
@@ -108,7 +111,11 @@ function TimingTower({ state, selected, onSelect }: { state: RaceState; selected
             <tr
               key={c.driver}
               onClick={() => onSelect(c.driver)}
-              className={clsx("cursor-pointer border-t border-line/60 hover:bg-surface-2", c.driver === selected && "bg-surface-3", c.retired && "opacity-40")}
+              className={clsx(
+                "cursor-pointer border-t border-line/60 hover:bg-surface-2",
+                c.driver === selected ? "bg-surface-3" : isMine(c.team) && "bg-mark/10",
+                c.retired && "opacity-40",
+              )}
             >
               <td className="py-1.5 pl-3 w-8 text-text-2">{c.retired ? "–" : c.position}</td>
               <td className="py-1.5">
@@ -411,7 +418,7 @@ function ManualForm({ race, onResult }: { race: RaceFile; onResult: (a: Analysis
           })}
         </div>
       </div>
-      <button onClick={submit} disabled={busy} className="rounded-lg bg-accent px-4 py-2 font-semibold hover:brightness-110 disabled:opacity-60">
+      <button onClick={submit} disabled={busy} className="rounded-lg bg-accent px-4 py-2 font-semibold text-on-accent hover:brightness-110 disabled:opacity-60">
         {busy ? "Computing…" : "Get the call"}
       </button>
       {err && <div className="sm:col-span-6 text-bad">{err}</div>}
@@ -447,8 +454,10 @@ export default function LivePage() {
   );
   const state = live.data?.state ?? null;
   const analysis = live.data?.analysis && live.data.analysis.driver === driver ? live.data.analysis : null;
-  // First payload has no analysis yet; default to the race leader.
-  if (!driver && state?.cars?.length && firstCar !== state.cars[0].driver) setFirstCar(state.cars[0].driver);
+  // First payload has no analysis yet; default to the visitor's team (its leading car), else the race leader.
+  const { isMine } = useTeam();
+  const opening = state?.cars?.find((c) => !c.retired && isMine(c.team))?.driver ?? state?.cars?.[0]?.driver ?? null;
+  if (!driver && opening) setFirstCar(opening); // once: the selection must not follow position changes
 
   const finishedRounds = useMemo(() => season?.rounds.filter((r) => r.status === "finished") ?? [], [season]);
 
@@ -480,7 +489,7 @@ export default function LivePage() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-sm text-text-3">
-            <Radio size={15} className={connected ? "text-accent live-dot" : ""} /> Live pit wall
+            <Radio size={15} className={connected ? "text-alert live-dot" : ""} /> Live pit wall
           </div>
           <h1 className="mt-1 text-3xl font-semibold tracking-tight">{state?.event ?? race?.event ?? "Race strategy, live"}</h1>
           <p className="text-text-2 mt-1">
@@ -561,7 +570,7 @@ export default function LivePage() {
                 </select>
               </label>
             )}
-            <button onClick={connect} disabled={connecting} className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 font-semibold hover:brightness-110 disabled:opacity-60">
+            <button onClick={connect} disabled={connecting} className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 font-semibold text-on-accent hover:brightness-110 disabled:opacity-60">
               {connecting ? <RefreshCcw size={15} className="animate-spin" /> : <Plug size={15} />}
               {connected ? "Reconnect" : "Connect"}
             </button>
@@ -596,7 +605,7 @@ export default function LivePage() {
               onChange={setDriver}
             />
           </Section>
-          {analysis ? <AnalysisView a={analysis} state={state} onSelect={setDriver} /> : <div className="text-text-3">Computing strategy…</div>}
+          {analysis ? <AnalysisView a={analysis} state={state} onSelect={setDriver} /> : <StrategyLoader label="Computing strategy…" />}
         </>
       )}
     </div>

@@ -1,0 +1,29 @@
+{
+  "name": "PitWall AI",
+  "short_name": "PitWall AI",
+  "description": "F1 race-strategy engine: tyre-wear modelling, exact strategy optimisation and a live pit wall.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080B0D",
+  "theme_color": "#080B0D",
+  "icons": [
+    {
+      "src": "/branding/icons/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/branding/icons/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/branding/icons/pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

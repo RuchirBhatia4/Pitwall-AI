@@ -1,6 +1,7 @@
 "use client";
 
 import clsx from "clsx";
+import { useTeam } from "@/components/TeamTheme";
 
 export interface PickerDriver {
   driver: string;
@@ -10,6 +11,7 @@ export interface PickerDriver {
 }
 
 export function DriverPicker({ drivers, value, onChange }: { drivers: PickerDriver[]; value: string | null; onChange: (d: string) => void }) {
+  const { isMine } = useTeam();
   return (
     <div className="flex flex-wrap gap-1.5" role="listbox" aria-label="Choose driver">
       {drivers.map((d) => (
@@ -20,9 +22,9 @@ export function DriverPicker({ drivers, value, onChange }: { drivers: PickerDriv
           onClick={() => onChange(d.driver)}
           className={clsx(
             "group flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm transition-colors",
-            value === d.driver ? "border-text-2 bg-surface-3" : "border-line bg-surface hover:border-line-strong",
+            value === d.driver ? "border-text-2 bg-surface-3" : isMine(d.team) ? "border-mark/60 bg-surface hover:border-mark" : "border-line bg-surface hover:border-line-strong",
           )}
-          title={d.team}
+          title={isMine(d.team) ? `${d.team} · your team` : d.team}
         >
           <span className="h-3.5 w-1 rounded-full" style={{ background: d.color }} />
           <span className="font-semibold tracking-wide">{d.driver}</span>

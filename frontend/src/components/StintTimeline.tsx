@@ -103,8 +103,8 @@ export function StintTimeline({
       })}
       {currentLap != null && (
         <g>
-          <line x1={x(currentLap)} x2={x(currentLap)} y1={0} y2={height - 22} stroke="var(--accent)" strokeWidth={2} />
-          <text x={x(currentLap) + 4} y={10} fill="var(--accent)" fontSize={10} fontWeight={700}>
+          <line x1={x(currentLap)} x2={x(currentLap)} y1={0} y2={height - 22} stroke="var(--accent-ink)" strokeWidth={2} />
+          <text x={x(currentLap) + 4} y={10} fill="var(--accent-ink)" fontSize={10} fontWeight={700}>
             NOW
           </text>
         </g>

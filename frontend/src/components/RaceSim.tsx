@@ -1,6 +1,9 @@
+"use client";
+
 import type { Driver, RaceForecast, SimOption } from "@/lib/types";
 import { pct } from "@/lib/api";
 import { SequencePills } from "./Tyre";
+import { YourTeamTag, useTeam } from "./TeamTheme";
 
 export function SimTable({ options }: { options: SimOption[] }) {
   return (
@@ -45,6 +48,7 @@ export function FinishForecast({ forecast, drivers, finished, selected }: { fore
     .filter((d) => forecast.drivers[d.driver])
     .map((d) => ({ d, f: forecast.drivers[d.driver] }))
     .sort((a, b) => a.f.expected_position - b.f.expected_position);
+  const { isMine } = useTeam();
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm tabular">
@@ -62,11 +66,12 @@ export function FinishForecast({ forecast, drivers, finished, selected }: { fore
         </thead>
         <tbody>
           {rows.map(({ d, f }, i) => (
-            <tr key={d.driver} className={`border-b border-line/60 ${d.driver === selected ? "bg-surface-2" : ""}`}>
+            <tr key={d.driver} className={`border-b border-line/60 ${d.driver === selected ? "bg-surface-2" : isMine(d.team) ? "bg-mark/10" : ""}`}>
               <td className="py-1.5 pr-3 text-text-3">{i + 1}</td>
               <td className="py-1.5 pr-3">
                 <span className="inline-block h-3 w-1 rounded-sm mr-2 align-middle" style={{ background: d.color }} />
-                <span className="font-semibold">{d.driver}</span> <span className="text-text-3 hidden sm:inline">{d.team}</span>
+                <span className="font-semibold">{d.driver}</span> <span className="text-text-3 hidden sm:inline">{d.team}</span>{" "}
+                {isMine(d.team) && <YourTeamTag />}
               </td>
               <td className="py-1.5 pr-3 text-text-2">{d.grid ? `P${d.grid}` : "–"}</td>
               <td className="py-1.5 pr-3">P{f.expected_position.toFixed(1)}</td>

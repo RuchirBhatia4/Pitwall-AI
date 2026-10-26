@@ -1,6 +1,6 @@
 # Deploying PitWall AI
 
-Live: frontend **https://pitwall-ai-f1.vercel.app** (Vercel, production branch `main`), API **https://pitwall-ai-2i89.onrender.com** (Render, `0.5c-512mb`, branch `main`). Both redeploy automatically on every push to `main`.
+Live: frontend **https://pitwallai.ruchirbhatia.com** (Vercel, production branch `main`; the original https://pitwall-ai-f1.vercel.app redirects there, see `frontend/next.config.ts`), API **https://pitwall-ai-2i89.onrender.com** (Render, `0.5c-512mb`, branch `main`). Both redeploy automatically on every push to `main`.
 
 Two services:
 

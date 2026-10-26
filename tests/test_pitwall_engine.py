@@ -4,19 +4,21 @@ from __future__ import annotations
 import itertools
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from src.pitwall.build_season import conformal_q, plan_loss
 from src.pitwall.live_sources import TimingReducer, _parse_gap, _rank_cars, _track_status_from_rc
-from src.pitwall.optimizer import INF, Optimizer, RaceContext, TyreState
+from src.pitwall.optimizer import INF, Optimizer, RaceContext, TyreState, sets_left, stint_set_ages
 from src.pitwall.tyre_model import (
     CompoundParams,
     TyreModel,
     _pav,
-    apply_behaviour,
+    classify_practice_runs,
     enforce_compound_order,
     fit_transfer,
     live_update,
+    race_stint_wear,
     weekend_model,
 )
 
@@ -155,12 +157,73 @@ def test_live_update_pulls_toward_observed_wear():
     assert upd.compounds["MEDIUM"].deg > 0.15
 
 
-def test_apply_behaviour_scales_soft_only():
-    m = model()
-    b = apply_behaviour(m, {"soft_mult": 2.0})
-    assert b.compounds["SOFT"].deg == pytest.approx(2 * m.compounds["SOFT"].deg)
-    assert b.compounds["MEDIUM"].deg == m.compounds["MEDIUM"].deg
-    assert m.compounds["SOFT"].deg == pytest.approx(0.12)  # original untouched
+def _laps(rows: list[tuple]) -> pd.DataFrame:
+    """(driver, stint, lap, lap_time, compound, tyre_life, pit_out, pit_in) -> session laps."""
+    df = pd.DataFrame(rows, columns=["driver", "stint", "lap", "lap_time", "compound", "tyre_life", "pit_out", "pit_in"])
+    return df.assign(team="T", deleted=False)
+
+
+def test_practice_runs_are_classified_and_cleaned():
+    rows, lap = [], 0
+
+    def add(stint, times, compound="MEDIUM"):
+        nonlocal lap
+        for i, t in enumerate(times):
+            lap += 1
+            rows.append(("AAA", stint, lap, t, compound, i + 1, i == 0, i == len(times) - 1))
+
+    add(1, [130.0, 90.0, 125.0, 90.3, 128.0], "SOFT")  # out, push, cool-down, push, in
+    # Race sim on heavy fuel (~4.5% off the best): 0.15 s/lap wear, 0.055 s/lap
+    # fuel burn, one traffic lap and a quick lap straight after it.
+    sim = [94.0 + 0.15 * a - 0.055 * a for a in range(14)]
+    sim[6], sim[7] = 101.0, sim[7] - 0.6
+    add(2, [130.0] + sim + [128.0])
+    add(3, [130.0, 92.5, 135.0])  # installation / aborted run
+    runs = classify_practice_runs(_laps(rows), "Practice 2")
+    by_stint = dict(zip(range(1, 4), runs["type"]))
+    assert by_stint == {1: "quali_sim", 2: "race_sim", 3: "short"}
+    rs = runs[runs["type"] == "race_sim"].iloc[0]
+    assert rs["laps"] == 12  # traffic lap and the recovery lap dropped
+    assert rs["raw_slope"] == pytest.approx(0.095, abs=0.005)
+    assert rs["level"] > 1.035
+
+
+def test_race_stint_wear_ignores_pace_between_stints():
+    rng = np.random.default_rng(1)
+    rows = []
+    for d in range(6):
+        first, second = ("SOFT", "MEDIUM") if d % 2 else ("MEDIUM", "SOFT")
+        for lap in range(1, 51):
+            stint, compound, age = (1, first, lap) if lap <= 20 else (2, second, lap - 20)
+            # 0.08 s/lap wear on both compounds, 0.055 s/lap fuel burn, and a
+            # driver pushing 0.8 s/lap harder after the stop.
+            t = 90 + 0.08 * age - 0.055 * lap - (0.8 if stint == 2 else 0.0) + rng.normal(0, 0.05)
+            rows.append((f"D{d}", stint, lap, t, compound, age, lap == 21, lap == 20))
+    wear = race_stint_wear(_laps(rows), {"sc": [], "vsc": [], "red": []}, fuel_per_lap=0.055)
+    assert wear["SOFT"]["deg"] == pytest.approx(0.08, abs=0.01)
+    assert wear["MEDIUM"]["deg"] == pytest.approx(0.08, abs=0.01)
+
+
+def test_stints_take_new_sets_first_then_the_used_one():
+    sets = {"SOFT": (1, 3), "MEDIUM": (1, 5), "HARD": (2, 6)}
+    assert stint_set_ages(["SOFT", "HARD", "SOFT"], sets) == [0, 0, 3]
+    assert stint_set_ages(["MEDIUM", "MEDIUM", "HARD", "HARD"], sets) == [0, 5, 0, 0]
+    assert stint_set_ages(["SOFT", "MEDIUM"], sets, on_car_age=12) == [12, 0]  # live: the set on the car
+    assert stint_set_ages(["SOFT", "SOFT"], None) == [0, 0]  # no inventory: always new
+    assert sets_left(sets, ("SOFT", "HARD")) == {"SOFT": (0, 3), "MEDIUM": (1, 5), "HARD": (1, 6)}
+
+
+def test_no_new_softs_left_moves_the_plan_off_a_second_soft():
+    # Softs and mediums wear alike; the soft is a little quicker. With new sets
+    # everywhere a two-stop on softs wins; with the only new soft gone, a second
+    # soft stint starts on a 12-lap-old set and the plan changes.
+    m = model(soft=0.08, med=0.08, hard=0.06)
+    ctx = RaceContext(total_laps=50, pit_loss=12.0, sc_rate=0.0, vsc_rate=0.0)
+    free = Optimizer(m, ctx).optimise(top=1)[0]
+    assert free.sequence.count("SOFT") >= 2
+    short = Optimizer(m, RaceContext(**{**ctx.__dict__, "tyre_sets": {"SOFT": (1, 12), "MEDIUM": (1, 5), "HARD": (2, 6)}})).optimise(top=1)[0]
+    assert short.sequence.count("SOFT") <= 1
+    assert short.total > free.total
 
 
 def test_conformal_quantile_finite_sample():

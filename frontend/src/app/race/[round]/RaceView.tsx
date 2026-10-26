@@ -162,7 +162,15 @@ export function RaceView({ round }: { round: number }) {
         <Stat label="Pit-lane loss" value={secs(w.pit_loss)} sub={race.overview?.pit_loss ? "measured from green-flag stops" : w.venue_history?.pit_loss ? "2024–25 races here, blended with the 2026 median" : "season median (no data at this track)"} />
         <Stat label="SC / VSC hazard" value={`${(w.sc_rate * 100).toFixed(1)}% / ${(w.vsc_rate * 100).toFixed(1)}%`} sub={w.venue_history?.races ? `per lap: 2026 races + ${w.venue_history.races} earlier race${w.venue_history.races > 1 ? "s" : ""} here (${w.venue_history.sc_starts} SC, ${w.venue_history.vsc_starts} VSC)` : "per lap, from earlier 2026 races"} />
         <Stat label="Practice → race wear" value={`× ${w.transfer.beta.toFixed(2)}`} sub={`learned on ${w.transfer.n} compound-weekends`} />
-        <Stat label="Long runs analysed" value={race.practice_runs.length} sub="FP / sprint stints ≥ 5 laps" />
+        {w.practice.runs ? (
+          <Stat
+            label="Race sims in practice"
+            value={w.practice.runs.race_sim ?? 0}
+            sub={`heavy-fuel runs that set the wear; also ${w.practice.runs.quali_sim ?? 0} quali sims, ${(w.practice.runs.mid_fuel ?? 0) + (w.practice.runs.short ?? 0)} other runs${w.practice.runs.sprint ? `, ${w.practice.runs.sprint} sprint stints` : ""}`}
+          />
+        ) : (
+          <Stat label="Long runs analysed" value={race.practice_runs.length} sub="FP / sprint stints ≥ 5 laps" />
+        )}
         <Stat label="Prior races" value={w.prior_races} sub="walk-forward: no future data" />
       </div>
     </>
@@ -264,6 +272,25 @@ export function RaceView({ round }: { round: number }) {
                 <div className="label mb-2">Stop-count odds (fastest)</div>
                 <StopOdds probs={pred.stop_probabilities} />
                 <div className="mt-1.5 text-[11px] text-text-3">Share of 400 simulated races (SC/VSC + tyre-wear uncertainty) in which each stop count was fastest</div>
+              </div>
+            )}
+            {d.tyre_sets && (
+              <div className="rounded-lg bg-surface-2 p-3">
+                <div className="label">{sel} tyre sets for the race</div>
+                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-sm tabular">
+                  {(["SOFT", "MEDIUM", "HARD"] as const).map((c) => {
+                    const s = d.tyre_sets?.[c];
+                    if (!s) return null;
+                    return (
+                      <span key={c} className="inline-flex items-center gap-1.5">
+                        <TyreBadge compound={c} size={18} />
+                        <span className="font-semibold">{s[0]} new</span>
+                        <span className="text-text-3">· used {s[1]} laps</span>
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="mt-1 text-xs text-text-3">Counted from every session before the race. After the new sets, a stop takes the freshest used set.</div>
               </div>
             )}
             {pred.wear_profile && (

@@ -30,20 +30,21 @@ from src.pitwall.optimizer import SHORT, Optimizer, RaceContext, TyreState
 from src.pitwall.race_data import load_session, neutralised_laps, normalize_laps, race_overview
 from src.pitwall.race_sim import Plan, RaceSim, SimParams, candidate_plans, fit_pace_model, fit_pass_model, pass_pairs, race_pace
 from src.pitwall.season import SEASON_DIR, get_schedule
-from src.pitwall.tyre_model import TyreModel, apply_behaviour
+from src.pitwall.tyre_model import TyreModel
 from src.pitwall.weekend import YEAR, build_weekend, completed_rounds, race_fit, race_is_finished, event_sessions
 
 OUT_DIR = SEASON_DIR / str(YEAR)
 CONFORMAL_LEVEL = 0.8
-# Revealed-preference search space (see calibrate_behaviour).
+# Revealed-preference search space (see calibrate_behaviour). Tyre wear is
+# not in it: wear is measured (within-stint drop-off, tyre_model.race_stint_wear),
+# never tuned to imitate team choices.
 BEHAVIOUR_GRID = [
-    {"soft_mult": sm, "fuel_wear": fw, "stop_penalty": sp, "hard_start": hs}
-    for sm in (1.0, 1.6, 2.4, 3.5)
+    {"fuel_wear": fw, "stop_penalty": sp, "hard_start": hs}
     for fw in (0.25, 1.0, 2.0)
     for sp in (0.0, 4.0, 8.0)
     for hs in (0.0, 3.0, 8.0)
 ]
-DEFAULT_BEHAVIOUR = {"soft_mult": 1.6, "fuel_wear": 1.0, "stop_penalty": 4.0, "hard_start": 3.0}
+DEFAULT_BEHAVIOUR = {"fuel_wear": 1.0, "stop_penalty": 4.0, "hard_start": 3.0}
 RACE_SIMS = 160
 # A circuit's overtaking difficulty from earlier seasons is shrunk toward the
 # 2026 average by this many pseudo-races (the 2026 cars race differently).
@@ -55,12 +56,15 @@ VENUE_SHRINK_RACES = 1.0
 PLAUSIBLE_CLASS_P = 0.10
 
 
-def _ctx(w: dict, team: str | None = None, behaviour: dict | None = None, driver: str | None = None) -> RaceContext:
+def _ctx(w: dict, team: str | None = None, behaviour: dict | None = None, driver: str | None = None, sets_of: str | None = None) -> RaceContext:
+    """sets_of: whose tyre sets to plan with (default `driver`; the median
+    driver's for field-level plans)."""
     b = behaviour or DEFAULT_BEHAVIOUR
+    sets = w.get("tyre_sets", {}).get(sets_of or driver) or w.get("field_tyre_sets")
     return RaceContext(
         total_laps=w["total_laps"], pit_loss=w["pit_loss"], sc_rate=w["sc_rate"],
         vsc_rate=w["vsc_rate"], team=team, driver=driver, stop_penalty=b["stop_penalty"], fuel_wear=b["fuel_wear"],
-        start_penalty={"HARD": b.get("hard_start", 0.0)},
+        start_penalty={"HARD": b.get("hard_start", 0.0)}, tyre_sets={c: tuple(v) for c, v in sets.items()} if sets else None,
     )
 
 
@@ -68,8 +72,7 @@ def _ctx(w: dict, team: str | None = None, behaviour: dict | None = None, driver
 def field_prediction(rnd: int, idx: int) -> dict | None:
     w = build_weekend(rnd)
     b = BEHAVIOUR_GRID[idx]
-    model = apply_behaviour(TyreModel.from_dict(w["model"]), b)
-    res = Optimizer(model, _ctx(w, behaviour=b)).optimise(top=1)
+    res = Optimizer(TyreModel.from_dict(w["model"]), _ctx(w, behaviour=b)).optimise(top=1)
     return res[0].to_dict() if res else None
 
 
@@ -116,7 +119,7 @@ def calibrate_behaviour(rnd: int) -> dict:
     losses = [sum(plan_loss(field_prediction(r, i), a[1], a[0]) for r, a in usable) / len(usable) for i in range(len(BEHAVIOUR_GRID))]
     best = int(np.argmin(losses))
     return dict(BEHAVIOUR_GRID[best]) | {"calibrated_on": len(usable), "loss": float(losses[best]),
-                                          "loss_uncalibrated": float(losses[BEHAVIOUR_GRID.index({"soft_mult": 1.0, "fuel_wear": 0.25, "stop_penalty": 0.0, "hard_start": 0.0})])}
+                                          "loss_uncalibrated": float(losses[BEHAVIOUR_GRID.index({"fuel_wear": 0.25, "stop_penalty": 0.0, "hard_start": 0.0})])}
 
 
 def baseline_plan(rnd: int, total_laps: int) -> dict | None:
@@ -220,10 +223,8 @@ def race_simulation(w: dict, drivers: list[dict], model: TyreModel, preds: dict,
     everyone on those best plans. A driver's candidates are cut to the
     plausible strategies (PLAUSIBLE_CLASS_P) once the behaviour model has run.
 
-    `model` keeps the learned soft-tyre wear correction (thermal degradation the
-    linear wear curve misses; without it the simulation picks far fewer of the
-    compounds teams actually used), but the per-stop track-position cost and the
-    start-tyre penalty are left out: track position is simulated here."""
+    The per-stop track-position cost and the start-tyre penalty are left out:
+    track position is simulated here."""
     cars = [d for d in drivers if d.get("grid")]
     ctx = RaceContext(total_laps=w["total_laps"], pit_loss=w["pit_loss"], sc_rate=w["sc_rate"], vsc_rate=w["vsc_rate"])
     sim = RaceSim(model, ctx, cars, params, sims=RACE_SIMS)
@@ -233,7 +234,8 @@ def race_simulation(w: dict, drivers: list[dict], model: TyreModel, preds: dict,
     for d in cars:
         if d["driver"] not in field:
             continue
-        opt = Optimizer(model, replace(ctx, team=d.get("team"), driver=d["driver"]))
+        sets = d.get("tyre_sets")
+        opt = Optimizer(model, replace(ctx, team=d.get("team"), driver=d["driver"], tyre_sets={c: tuple(v) for c, v in sets.items()} if sets else None))
         cands = candidate_plans(opt)
         likely = preds[d["driver"]].get("likely")
         if likely:
@@ -298,16 +300,15 @@ def sim_metrics(data: dict) -> dict:
 
 def build_round(rnd: int, behaviour: dict, q_first_stop: float | None) -> dict:
     w = build_weekend(rnd)
-    raw_model = TyreModel.from_dict(w["model"])
-    model = apply_behaviour(raw_model, behaviour)
+    model = TyreModel.from_dict(w["model"])
     finished = race_is_finished(rnd)
     overview = race_overview(YEAR, rnd) if finished else None
     fit = race_fit(rnd) if finished else None
-    # Hindsight uses the race's own fitted (physics-only) tyre model. Behaviour
-    # corrections exist to mimic team *decisions*; for scoring what was actually
-    # fastest we keep only the track-position cost per stop.
+    # Hindsight uses the race's own fitted tyre model. Behaviour corrections
+    # exist to mimic team *decisions*; for scoring what was actually fastest we
+    # keep only the track-position cost per stop.
     hindsight_model = TyreModel.from_dict(fit["model"]) if fit and fit.get("model") else None
-    hindsight_b = DEFAULT_BEHAVIOUR | {"soft_mult": 1.0, "fuel_wear": 0.25, "hard_start": 0.0, "stop_penalty": behaviour["stop_penalty"]}
+    hindsight_b = DEFAULT_BEHAVIOUR | {"fuel_wear": 0.25, "hard_start": 0.0, "stop_penalty": behaviour["stop_penalty"]}
 
     drivers = w["drivers"]
     if overview:
@@ -336,7 +337,7 @@ def build_round(rnd: int, behaviour: dict, q_first_stop: float | None) -> dict:
             act = actual_plan(overview["stints"][d["driver"]])
             entry["actual"] = act
             if hindsight_model and all(c in hindsight_model.compounds for c in act["sequence"]):
-                h_opt = Optimizer(hindsight_model, _ctx(w, d.get("team"), hindsight_b))
+                h_opt = Optimizer(hindsight_model, _ctx(w, d.get("team"), hindsight_b, sets_of=d["driver"]))
                 h_res = h_opt.optimise(top=1)
                 if h_res:
                     entry["hindsight"] = h_res[0].to_dict()
@@ -356,8 +357,8 @@ def build_round(rnd: int, behaviour: dict, q_first_stop: float | None) -> dict:
         "format": w["format"],
         "status": "finished" if finished else "upcoming",
         "race_start_utc": str(event_sessions(YEAR, rnd).get("Race")),
-        "weekend": {k: w[k] for k in ("total_laps", "pit_loss", "sc_rate", "vsc_rate", "season_sc_rate", "season_vsc_rate", "venue_history", "prior_races", "transfer", "offset_transfer", "short_run_offsets", "prior", "practice")}
-        | {"model": model.to_dict(), "raw_model": raw_model.to_dict(), "behaviour": behaviour,
+        "weekend": {k: w[k] for k in ("total_laps", "pit_loss", "sc_rate", "vsc_rate", "season_sc_rate", "season_vsc_rate", "venue_history", "tyre_sets", "field_tyre_sets", "prior_races", "transfer", "offset_transfer", "short_run_offsets", "prior", "practice")}
+        | {"model": model.to_dict(), "behaviour": behaviour,
            "stop_penalty": behaviour["stop_penalty"], "fuel_wear": behaviour["fuel_wear"], "first_stop_q": q_first_stop},
         "baseline": baseline,
         "practice_runs": w["practice_runs"],

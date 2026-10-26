@@ -18,12 +18,15 @@ from collections import Counter
 from src.pitwall.api import weekend_for
 from src.pitwall.live_engine import analyse
 from src.pitwall.live_sources import ReplaySource
+from src.pitwall.race_data import stints_from_laps
 
 
 def score_race(rnd: int, every: int = 1, sims: int = 60) -> dict:
     src = ReplaySource(rnd)
     weekend = weekend_for(rnd)
-    pits = {d: {int(r.lap) for r in g.itertuples() if r.pit_in} for d, g in src.laps.groupby("driver")}
+    # Laps a car came in for tyres. Not every pit-lane trip: at Baku the Safety
+    # Car led the field through the pit lane, which changed nobody's tyres.
+    pits = {d: set(g.sort_values("stint")["end_lap"].iloc[:-1].astype(int)) for d, g in stints_from_laps(src.laps).groupby("driver")}
     calls, false_box, examples = Counter(), 0, []
     ready: dict[str, set[int]] = {}
     gate: list[dict] = []  # every lap the optimiser wanted a stop *this* lap

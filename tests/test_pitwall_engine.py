@@ -7,9 +7,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.pitwall.build_season import conformal_q, plan_loss
+from src.pitwall.build_season import actual_plan, conformal_q, first_stop, plan_loss
 from src.pitwall.live_sources import TimingReducer, _parse_gap, _rank_cars, _track_status_from_rc
 from src.pitwall.optimizer import INF, Optimizer, RaceContext, TyreState, sets_left, stint_set_ages
+from src.pitwall.race_data import stints_from_laps
 from src.pitwall.tyre_model import (
     CompoundParams,
     TyreModel,
@@ -204,6 +205,29 @@ def test_race_stint_wear_ignores_pace_between_stints():
     assert wear["MEDIUM"]["deg"] == pytest.approx(0.08, abs=0.01)
 
 
+def test_pit_lane_pass_is_not_a_stop_and_red_flag_change_is_not_a_pit_stop():
+    def race(rows):
+        df = pd.DataFrame(rows, columns=["driver", "stint", "lap", "compound", "tyre_life", "track_status"])
+        return df.assign(fresh=True)
+
+    # Medium to lap 30, soft from lap 31; the Safety Car leads the field through
+    # the pit lane on lap 36 (new timing stint, same set: age runs on).
+    rows = [("AAA", 1, l, "MEDIUM", l + 2, "1") for l in range(1, 31)]
+    rows += [("AAA", 2, l, "SOFT", l - 30, "4") for l in range(31, 37)]
+    rows += [("AAA", 3, l, "SOFT", l - 30, "1") for l in range(37, 52)]
+    st = stints_from_laps(race(rows))
+    assert list(st["compound"]) == ["MEDIUM", "SOFT"] and list(st["end_lap"]) == [30, 51]
+    plan = actual_plan(st.to_dict("records"))
+    assert plan["stops"] == 1 and first_stop(plan) == 30
+
+    # Tyres changed under a red flag on lap 3, no pit stop afterwards.
+    rows = [("BBB", 1, l, "MEDIUM", l, "1" if l < 2 else "5") for l in range(1, 4)]
+    rows += [("BBB", 2, l, "HARD", l - 3, "5" if l == 4 else "1") for l in range(4, 54)]
+    plan = actual_plan(stints_from_laps(race(rows)).to_dict("records"))
+    assert plan["sequence"] == ["MEDIUM", "HARD"] and plan["pit_laps"] == [3]
+    assert plan["stops"] == 0 and first_stop(plan) is None
+
+
 def test_stints_take_new_sets_first_then_the_used_one():
     sets = {"SOFT": (1, 3), "MEDIUM": (1, 5), "HARD": (2, 6)}
     assert stint_set_ages(["SOFT", "HARD", "SOFT"], sets) == [0, 0, 3]
@@ -339,3 +363,11 @@ def test_stop_probabilities_cover_all_stop_counts():
     assert {len(p.pit_laps) for p in plans} >= {1, 2, 3}
     opt.monte_carlo(plans, sims=100)
     assert sum(opt.stop_probabilities.values()) == pytest.approx(1.0)
+
+
+def test_regularisation_is_chosen_from_earlier_rounds_only():
+    from src.pitwall.behaviour_model import ALPHA_GRID, C_GRID, DEFAULT_STRENGTH, choose_strength
+
+    assert choose_strength([]) == DEFAULT_STRENGTH
+    score = {(t, C): abs(C - 0.01) for t in ("y_stops", "y_start") for C in C_GRID} | {("alpha", a): abs(a - 125.0) for a in ALPHA_GRID}
+    assert choose_strength([score, score]) == {"y_stops": 0.01, "y_start": 0.01, "alpha": 125.0}

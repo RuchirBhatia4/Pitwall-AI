@@ -90,7 +90,7 @@ def round_actuals(rnd: int) -> tuple[int, tuple[tuple, ...]] | None:
         if d["status"] in ("Finished", "Lapped") or d["status"].startswith("+"):
             st = ov["stints"].get(d["driver"], [])
             a = actual_plan(st) if st else None
-            if a and 1 <= a["stops"] <= 3 and all(c in ("SOFT", "MEDIUM", "HARD") for c in a["sequence"]):
+            if a and 1 <= a["stops"] == len(a["pit_laps"]) <= 3 and all(c in ("SOFT", "MEDIUM", "HARD") for c in a["sequence"]):
                 plans.append((tuple(a["sequence"]), tuple(a["pit_laps"])))
     return (ov["total_laps"], tuple(plans)) if plans else None
 
@@ -142,9 +142,20 @@ def baseline_plan(rnd: int, total_laps: int) -> dict | None:
 
 
 def actual_plan(stints: list[dict]) -> dict:
+    """What a driver ran. pit_laps: every tyre change; stops / stop_laps: pit
+    stops only. A set changed while the race was red-flagged is not a pit stop
+    (F1's own count, and no strategy chose it), so it adds a compound but not a
+    stop (Monza 2026: the field changed tyres under the lap-2 red flag)."""
     seq = [s["compound"] for s in stints]
     pits = [s["end_lap"] for s in stints[:-1]]
-    return {"sequence": seq, "name": "-".join(SHORT.get(c, "?") for c in seq), "pit_laps": pits, "stops": len(pits)}
+    stops = [s["end_lap"] for s, nxt in zip(stints, stints[1:]) if not nxt.get("red_flag")]
+    return {"sequence": seq, "name": "-".join(SHORT.get(c, "?") for c in seq), "pit_laps": pits, "stops": len(stops), "stop_laps": stops}
+
+
+def first_stop(plan: dict) -> int | None:
+    """Lap of an actual plan's first pit stop (None: no stop)."""
+    laps = plan.get("stop_laps", plan["pit_laps"])
+    return laps[0] if laps else None
 
 
 def modal_stops(overview: dict) -> int | None:
@@ -153,7 +164,7 @@ def modal_stops(overview: dict) -> int | None:
         if d["status"] in ("Finished", "Lapped") or d["status"].startswith("+"):
             st = overview["stints"].get(d["driver"], [])
             if st:
-                counts[len(st) - 1] += 1
+                counts[actual_plan(st)["stops"]] += 1
     return counts.most_common(1)[0][0] if counts else None
 
 
@@ -276,8 +287,8 @@ def sim_metrics(data: dict) -> dict:
         r["sim_compound_set_match"] = set(sim["sequence"]) == set(a["sequence"])
         r["sim_start_compound_match"] = sim["sequence"][0] == a["sequence"][0]
         r["sim_uses_hard"] = "HARD" in sim["sequence"]
-        if sim["pit_laps"] and a["pit_laps"]:
-            r["sim_first_stop_error"] = a["pit_laps"][0] - sim["pit_laps"][0]
+        if sim["pit_laps"] and first_stop(a):
+            r["sim_first_stop_error"] = first_stop(a) - sim["pit_laps"][0]
     sim_rows = [r for r in rows if "sim_stops_match" in r]
     out = {}
     if sim_rows:
@@ -380,6 +391,8 @@ def evaluate(preds: dict, overview: dict, fit: dict | None, baseline: dict | Non
             continue
         p, a = e["predicted"], e["actual"]
         dry = all(c in ("SOFT", "MEDIUM", "HARD") for c in a["sequence"])
+        if not dry:  # raced on intermediates in a dry race: a weather call, not a dry strategy
+            continue
         row = {
             "uses_hard_pred": "HARD" in p["sequence"],
             "uses_hard_actual": "HARD" in a["sequence"],
@@ -389,21 +402,22 @@ def evaluate(preds: dict, overview: dict, fit: dict | None, baseline: dict | Non
             "start_compound_match": p["sequence"][0] == a["sequence"][0],
             "dry": dry,
         }
-        if p["pit_laps"] and a["pit_laps"]:
-            row["first_stop_error"] = a["pit_laps"][0] - p["pit_laps"][0]
+        af = first_stop(a)
+        if p["pit_laps"] and af:
+            row["first_stop_error"] = af - p["pit_laps"][0]
             lo, hi = p["windows"][0]
-            row["first_stop_in_window"] = lo <= a["pit_laps"][0] <= hi
+            row["first_stop_in_window"] = lo <= af <= hi
             if "first_stop_interval" in e:
                 lo, hi = e["first_stop_interval"]
-                row["first_stop_in_conformal"] = lo <= a["pit_laps"][0] <= hi
+                row["first_stop_in_conformal"] = lo <= af <= hi
         if "actual_vs_hindsight" in e:
             row["actual_vs_hindsight"] = e["actual_vs_hindsight"]
         if baseline:
             row["baseline_stops_match"] = baseline["stops"] == a["stops"]
             row["baseline_compound_set_match"] = set(baseline["sequence"]) == set(a["sequence"])
             row["baseline_start_compound_match"] = baseline["sequence"][0] == a["sequence"][0]
-            if baseline["pit_laps"] and a["pit_laps"]:
-                row["baseline_first_stop_error"] = a["pit_laps"][0] - baseline["pit_laps"][0]
+            if baseline["pit_laps"] and af:
+                row["baseline_first_stop_error"] = af - baseline["pit_laps"][0]
         rows.append(row)
 
     def rate(key):
@@ -528,7 +542,7 @@ def write_index() -> None:
 
     errs = [r["first_stop_error"] for r in agg_rows if "first_stop_error" in r]
     backtest = {
-        "scope": "dry 2026 races from round 4 onward, classified finishers, walk-forward (no future data)",
+        "scope": "dry 2026 races from round 4 onward, classified finishers on dry tyres, walk-forward (no future data)",
         "driver_races": len(agg_rows),
         "stops_accuracy": rate("stops_match"),
         "compound_set_accuracy": rate("compound_set_match"),

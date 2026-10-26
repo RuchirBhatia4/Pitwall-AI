@@ -32,8 +32,11 @@ export interface Strategy {
 export interface ActualPlan {
   sequence: Compound[];
   name: string;
+  /** Every tyre change, including any made under a red flag. */
   pit_laps: number[];
   stops: number;
+  /** Pit stops only: a red-flag tyre change is not one. */
+  stop_laps?: number[];
 }
 
 export interface LikelyPlan extends Strategy {

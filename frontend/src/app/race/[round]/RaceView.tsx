@@ -13,6 +13,7 @@ import { DegradationChart } from "@/components/Charts";
 import { PlanTable } from "@/components/PlanTable";
 import { StopOdds } from "@/components/StopOdds";
 import { FinishForecast, SimTable } from "@/components/RaceSim";
+import { useTeam } from "@/components/TeamTheme";
 
 function planRow(key: string, label: string, s: { sequence: string[]; pit_laps: number[] }, total: number, extra?: Partial<TimelineRow>): TimelineRow {
   const bounds = [1, ...s.pit_laps.map((p) => p + 1), total + 1];
@@ -99,7 +100,7 @@ function WhatIf({ race, driver }: { race: RaceFile; driver: string }) {
       </div>
       <StintTimeline rows={[planRow("wi", "Your plan", { sequence: seq, pit_laps: [...pits].sort((a, b) => a - b) }, L)]} totalLaps={L} />
       <div className="flex flex-wrap items-center gap-3">
-        <button onClick={run} className="rounded-lg bg-accent px-4 py-2 font-semibold hover:brightness-110">
+        <button onClick={run} className="rounded-lg bg-accent px-4 py-2 font-semibold text-on-accent hover:brightness-110">
           Evaluate plan
         </button>
         {result && (
@@ -122,13 +123,15 @@ function WhatIf({ race, driver }: { race: RaceFile; driver: string }) {
 export function RaceView({ round }: { round: number }) {
   const { data: race, error } = useApi<RaceFile>(`/api/races/${round}`);
   const [driver, setDriver] = useState<string | null>(null);
+  const { isMine } = useTeam();
 
   const drivers = useMemo(() => {
     if (!race) return [];
     const order = race.overview ? [...race.drivers].sort((a, b) => (a.position ?? 99) - (b.position ?? 99)) : race.drivers;
     return order.filter((d) => race.predictions[d.driver]?.predicted);
   }, [race]);
-  const sel = driver ?? drivers[0]?.driver ?? null;
+  // Opens on the visitor's team (its best-placed car), else the leader.
+  const sel = driver ?? drivers.find((d) => isMine(d.team))?.driver ?? drivers[0]?.driver ?? null;
 
   if (error) return <div className="mx-auto max-w-7xl px-4 sm:px-6 py-10 text-bad">{error}</div>;
   if (!race) return <div className="mx-auto max-w-7xl px-4 sm:px-6 py-10 text-text-3">Loading race…</div>;
@@ -152,7 +155,7 @@ export function RaceView({ round }: { round: number }) {
           </p>
         </div>
         {!finished && (
-          <Link href="/live" className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 font-semibold hover:brightness-110">
+          <Link href="/live" className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 font-semibold text-on-accent hover:brightness-110">
             <Radio size={16} /> Live pit wall
           </Link>
         )}

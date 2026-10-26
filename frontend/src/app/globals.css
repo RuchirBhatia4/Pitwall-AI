@@ -11,8 +11,19 @@
   --text: #f2f4f8;
   --text-2: #a9b0c2;
   --text-3: #6b7387;
+  /* Brand accent; a visitor's favourite team overrides these and the surfaces
+     (html[data-team], see src/lib/teams.ts). */
   --accent: #e10600;
-  --accent-soft: rgba(225, 6, 0, 0.14);
+  --accent-2: #3b82f6;
+  --on-accent: #ffffff;
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  /* Accent text, labels and your-team highlights: the accent unless a team
+     splits its livery colours across them. */
+  --accent-ink: var(--accent);
+  --label: var(--text-3);
+  --mark: var(--accent);
+  /* Pit-board red for urgent calls and LIVE: fixed, whatever the team. */
+  --alert: #e10600;
   --good: #22c55e;
   --warn: #f5a524;
   --bad: #ef4444;
@@ -36,6 +47,11 @@
   --color-text-2: var(--text-2);
   --color-text-3: var(--text-3);
   --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-on-accent: var(--on-accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-mark: var(--mark);
+  --color-alert: var(--alert);
   --color-good: var(--good);
   --color-warn: var(--warn);
   --color-bad: var(--bad);
@@ -68,7 +84,7 @@ body {
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-3);
+  color: var(--label);
   font-weight: 600;
 }
 

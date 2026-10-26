@@ -30,8 +30,8 @@ function RaceDayHero({ season }: { season: Season }) {
         <div>
           <div className="flex items-center gap-2 text-sm">
             {live ? (
-              <span className="flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-1 text-accent font-semibold">
-                <span className="live-dot h-2 w-2 rounded-full bg-accent" /> LIVE NOW
+              <span className="flex items-center gap-1.5 rounded-full bg-alert/15 px-2.5 py-1 text-alert font-semibold">
+                <span className="live-dot h-2 w-2 rounded-full bg-alert" /> LIVE NOW
               </span>
             ) : (
               <span className="flex items-center gap-1.5 rounded-full bg-surface-3 px-2.5 py-1 text-text-2">
@@ -46,7 +46,7 @@ function RaceDayHero({ season }: { season: Season }) {
             {rnd.country && rnd.location !== rnd.country ? ` · held for ${rnd.country}` : ""}
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
-            <Link href="/live" className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 font-semibold hover:brightness-110">
+            <Link href="/live" className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 font-semibold text-on-accent hover:brightness-110">
               <Radio size={16} /> Open live pit wall
             </Link>
             <Link href={`/race/${rnd.round}`} className="inline-flex items-center gap-2 rounded-lg border border-line-strong px-4 py-2.5 hover:bg-surface-2">
@@ -96,7 +96,7 @@ function RoundCard({ r }: { r: SeasonRound }) {
         </div>
       )}
       {m?.wet && <div className="mt-3 text-xs text-info">Wet race · excluded from dry-strategy metrics</div>}
-      {!finished && r.available && <div className="mt-3 text-xs text-accent font-semibold">Predictions ready →</div>}
+      {!finished && r.available && <div className="mt-3 text-xs text-accent-ink font-semibold">Predictions ready →</div>}
     </div>
   );
   return r.available ? <Link href={`/race/${r.round}`}>{body}</Link> : body;

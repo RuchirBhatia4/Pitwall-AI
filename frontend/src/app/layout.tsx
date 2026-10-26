@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Nav } from "@/components/Nav";
 import { ChatDock } from "@/components/ChatDock";
+import { TeamPrompt, TeamProvider } from "@/components/TeamTheme";
+import { teamBootScript, teamThemeCss } from "@/lib/teams";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -15,17 +17,25 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+    // suppressHydrationWarning: the boot script sets data-team on <html> before React hydrates.
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`} suppressHydrationWarning>
+      <head>
+        <style dangerouslySetInnerHTML={{ __html: teamThemeCss() }} />
+        <script dangerouslySetInnerHTML={{ __html: teamBootScript }} />
+      </head>
       <body className="min-h-full flex flex-col">
-        <Nav />
-        <main className="flex-1">{children}</main>
-        <footer className="border-t border-line mt-16">
-          <div className="mx-auto max-w-7xl px-4 sm:px-6 py-6 text-xs text-text-3 flex flex-wrap gap-x-6 gap-y-2 justify-between">
-            <span>PitWall AI · independent project, not affiliated with Formula 1, FIA or any team.</span>
-            <span>Data: FastF1 / F1 live timing, OpenF1. Model outputs are estimates with stated uncertainty.</span>
-          </div>
-        </footer>
-        <ChatDock />
+        <TeamProvider>
+          <Nav />
+          <TeamPrompt />
+          <main className="flex-1">{children}</main>
+          <footer className="border-t border-line mt-16">
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 py-6 text-xs text-text-3 flex flex-wrap gap-x-6 gap-y-2 justify-between">
+              <span>PitWall AI · independent project, not affiliated with Formula 1, FIA or any team.</span>
+              <span>Data: FastF1 / F1 live timing, OpenF1. Model outputs are estimates with stated uncertainty.</span>
+            </div>
+          </footer>
+          <ChatDock />
+        </TeamProvider>
       </body>
     </html>
   );

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
 import { Activity, Flag, FlaskConical, Radio } from "lucide-react";
+import { TeamPicker } from "@/components/TeamTheme";
 
 const links = [
   { href: "/", label: "Season", icon: Flag },
@@ -17,11 +18,11 @@ export function Nav() {
     <header className="sticky top-0 z-40 border-b border-line bg-bg/85 backdrop-blur">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 h-14 flex items-center gap-6">
         <Link href="/" className="flex shrink-0 items-center gap-2 whitespace-nowrap font-semibold tracking-tight">
-          <span className="grid place-items-center h-7 w-7 rounded-md bg-accent">
+          <span className="grid place-items-center h-7 w-7 rounded-md bg-accent text-on-accent">
             <Activity size={16} strokeWidth={2.5} />
           </span>
           <span>
-            PitWall <span className="text-accent">AI</span>
+            PitWall <span className="text-accent-ink">AI</span>
           </span>
         </Link>
         <nav className="flex items-center gap-1 overflow-x-auto">
@@ -42,6 +43,7 @@ export function Nav() {
             );
           })}
         </nav>
+        <TeamPicker />
       </div>
     </header>
   );

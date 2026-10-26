@@ -1,12 +1,12 @@
 {
  "scope": "dry 2026 races from round 4 onward, classified finishers, walk-forward (no future data)",
  "driver_races": 210,
- "stops_accuracy": 0.38571428571428573,
- "compound_set_accuracy": 0.40476190476190477,
- "start_compound_accuracy": 0.3142857142857143,
- "first_stop_mae": 8.504761904761905,
- "window_coverage": 0.5333333333333333,
- "conformal_coverage": 0.8666666666666667,
+ "stops_accuracy": 0.4,
+ "compound_set_accuracy": 0.3380952380952381,
+ "start_compound_accuracy": 0.24761904761904763,
+ "first_stop_mae": 8.49047619047619,
+ "window_coverage": 0.49523809523809526,
+ "conformal_coverage": 0.8095238095238095,
  "conformal_target": 0.8,
  "baseline": {
   "description": "most common strategy of earlier dry 2026 races, median first-stop fraction",
@@ -18,34 +18,34 @@
  "racesim": {
   "description": "full-field race simulation (traffic, overtaking, SC/VSC); each driver's plan chosen by expected finishing position",
   "driver_races": 210,
-  "stops_accuracy": 0.5142857142857142,
-  "compound_set_accuracy": 0.4,
-  "start_compound_accuracy": 0.5571428571428572,
-  "first_stop_mae": 8.742857142857142,
-  "uses_hard": 0.7761904761904762,
+  "stops_accuracy": 0.5190476190476191,
+  "compound_set_accuracy": 0.3380952380952381,
+  "start_compound_accuracy": 0.5142857142857142,
+  "first_stop_mae": 9.076190476190476,
+  "uses_hard": 0.5571428571428572,
   "physics_on_same_rows": {
-   "stops_accuracy": 0.38571428571428573,
-   "compound_set_accuracy": 0.40476190476190477,
-   "start_compound_accuracy": 0.3142857142857143,
-   "first_stop_mae": 8.504761904761905,
-   "uses_hard": 0.8571428571428571
+   "stops_accuracy": 0.4,
+   "compound_set_accuracy": 0.3380952380952381,
+   "start_compound_accuracy": 0.24761904761904763,
+   "first_stop_mae": 8.49047619047619,
+   "uses_hard": 0.7285714285714285
   },
   "actual_uses_hard": 0.6904761904761905,
-  "finishing_order_rho": 0.854768661850705,
+  "finishing_order_rho": 0.8527453318430415,
   "grid_order_rho": 0.8095459236326108
  },
  "hybrid": {
   "description": "physics optimiser + walk-forward behaviour classifier (logistic regression on physics features)",
   "driver_races": 210,
-  "stops_accuracy": 0.4380952380952381,
-  "compound_set_accuracy": 0.38571428571428573,
-  "start_compound_accuracy": 0.5619047619047619,
-  "first_stop_mae": 10.771428571428572,
+  "stops_accuracy": 0.44285714285714284,
+  "compound_set_accuracy": 0.3476190476190476,
+  "start_compound_accuracy": 0.5666666666666667,
+  "first_stop_mae": 10.947619047619048,
   "physics_on_same_rows": {
-   "stops_accuracy": 0.38571428571428573,
-   "compound_set_accuracy": 0.40476190476190477,
-   "start_compound_accuracy": 0.3142857142857143,
-   "first_stop_mae": 8.504761904761905
+   "stops_accuracy": 0.4,
+   "compound_set_accuracy": 0.3380952380952381,
+   "start_compound_accuracy": 0.24761904761904763,
+   "first_stop_mae": 8.49047619047619
   },
   "baseline_on_same_rows": {
    "stops_accuracy": 0.34285714285714286,

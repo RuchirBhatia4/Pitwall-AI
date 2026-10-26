@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
-import { Activity, Flag, FlaskConical, Radio } from "lucide-react";
+import { Flag, FlaskConical, Radio } from "lucide-react";
+import { NavLogo } from "@/components/Brand";
 import { TeamPicker } from "@/components/TeamTheme";
 
 const links = [
@@ -17,13 +18,8 @@ export function Nav() {
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-bg/85 backdrop-blur">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 h-14 flex items-center gap-6">
-        <Link href="/" className="flex shrink-0 items-center gap-2 whitespace-nowrap font-semibold tracking-tight">
-          <span className="grid place-items-center h-7 w-7 rounded-md bg-accent text-on-accent">
-            <Activity size={16} strokeWidth={2.5} />
-          </span>
-          <span>
-            PitWall <span className="text-accent-ink">AI</span>
-          </span>
+        <Link href="/" aria-label="PitWall AI home" className="flex shrink-0 items-center">
+          <NavLogo />
         </Link>
         <nav className="flex items-center gap-1 overflow-x-auto">
           {links.map(({ href, label, icon: Icon }) => {

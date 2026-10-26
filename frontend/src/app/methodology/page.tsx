@@ -2,6 +2,7 @@
 
 import { pct, useApi } from "@/lib/api";
 import type { Season } from "@/lib/types";
+import { StrategyLoader } from "@/components/Brand";
 
 const PIPELINE = [
   { t: "Ingest", d: "FastF1 timing for every 2026 session (practice, sprint, qualifying, race). Live: OpenF1 or F1's live-timing feed." },
@@ -132,7 +133,7 @@ export default function Methodology() {
             <p className="mt-3 text-xs text-text-3">Race sim: {bt.racesim?.description ?? "not built"}. Baseline: {bt.baseline.description}.</p>
           </div>
         ) : (
-          <div className="text-text-3">Loading…</div>
+          <StrategyLoader label="Loading…" />
         )}
       </section>
 

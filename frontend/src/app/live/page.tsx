@@ -14,6 +14,7 @@ import { LiveTyreCurve } from "@/components/Charts";
 import { PlanTable } from "@/components/PlanTable";
 import { StopOdds } from "@/components/StopOdds";
 import { useTeam } from "@/components/TeamTheme";
+import { StrategyLoader } from "@/components/Brand";
 
 type SourceKind = "openf1" | "signalr" | "replay" | "manual";
 
@@ -604,7 +605,7 @@ export default function LivePage() {
               onChange={setDriver}
             />
           </Section>
-          {analysis ? <AnalysisView a={analysis} state={state} onSelect={setDriver} /> : <div className="text-text-3">Computing strategy…</div>}
+          {analysis ? <AnalysisView a={analysis} state={state} onSelect={setDriver} /> : <StrategyLoader label="Computing strategy…" />}
         </>
       )}
     </div>

@@ -6,6 +6,7 @@ import { ArrowRight, CalendarClock, CheckCircle2, CircleDashed, Radio, Trophy } 
 import { countdown, pct, useApi } from "@/lib/api";
 import type { Season, SeasonRound } from "@/lib/types";
 import { Stat } from "@/components/Stat";
+import { StrategyLoader } from "@/components/Brand";
 
 function useNow(ms = 1000) {
   const [now, setNow] = useState(() => Date.now());
@@ -105,7 +106,7 @@ function RoundCard({ r }: { r: SeasonRound }) {
 export default function Home() {
   const { data: season, error } = useApi<Season>("/api/season");
   if (error) return <div className="mx-auto max-w-7xl px-4 sm:px-6 py-10 text-bad">Backend unavailable: {error}. Start it with <code>uvicorn src.api.main:app</code>.</div>;
-  if (!season) return <div className="mx-auto max-w-7xl px-4 sm:px-6 py-10 text-text-3">Loading season…</div>;
+  if (!season) return <StrategyLoader label="Loading season…" className="mx-auto max-w-7xl px-4 sm:px-6 py-10" />;
   const bt = season.backtest;
   const done = season.rounds.filter((r) => r.status === "finished").length;
   return (

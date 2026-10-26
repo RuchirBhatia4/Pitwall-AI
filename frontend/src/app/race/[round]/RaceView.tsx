@@ -14,6 +14,7 @@ import { PlanTable } from "@/components/PlanTable";
 import { StopOdds } from "@/components/StopOdds";
 import { FinishForecast, SimTable } from "@/components/RaceSim";
 import { useTeam } from "@/components/TeamTheme";
+import { StrategyLoader } from "@/components/Brand";
 
 function planRow(key: string, label: string, s: { sequence: string[]; pit_laps: number[] }, total: number, extra?: Partial<TimelineRow>): TimelineRow {
   const bounds = [1, ...s.pit_laps.map((p) => p + 1), total + 1];
@@ -134,7 +135,7 @@ export function RaceView({ round }: { round: number }) {
   const sel = driver ?? drivers.find((d) => isMine(d.team))?.driver ?? drivers[0]?.driver ?? null;
 
   if (error) return <div className="mx-auto max-w-7xl px-4 sm:px-6 py-10 text-bad">{error}</div>;
-  if (!race) return <div className="mx-auto max-w-7xl px-4 sm:px-6 py-10 text-text-3">Loading race…</div>;
+  if (!race) return <StrategyLoader label="Loading race…" className="mx-auto max-w-7xl px-4 sm:px-6 py-10" />;
 
   const w = race.weekend;
   const L = race.overview?.total_laps ?? w.total_laps;

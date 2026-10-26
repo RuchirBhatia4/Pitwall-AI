@@ -39,9 +39,11 @@ The frontend proxies `/api/*` to `PITWALL_API_URL` through Next.js rewrites, so 
 
 ```bash
 python -m src.pitwall.prefetch       # new sessions into the local cache (OpenF1 when F1's archive refuses)
-python -m src.pitwall.build_season   # rebuild rounds, backtest, hybrid model
+python -m src.pitwall.build_season   # rebuild rounds, backtest, hybrid model, race simulation
 git add data/season/2026 && git commit -m "Add round N" && git push
 ```
+
+`data/season/track_history.json` (each circuit's 2024–25 overtaking difficulty and Safety Car record, used by the race simulation and the SC/VSC hazards) is built once with `python -m src.pitwall.track_history` and committed. OpenF1's free tier allows 500 requests an hour, so a full rebuild may need a second run to fill in races it skipped.
 
 ## Local development
 

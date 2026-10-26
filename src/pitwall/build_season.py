@@ -18,12 +18,17 @@ import argparse
 import json
 import math
 from collections import Counter
+from dataclasses import replace
 from functools import lru_cache
 
 import numpy as np
+import pandas as pd
+from scipy.stats import spearmanr
 
+from src.pitwall import track_history
 from src.pitwall.optimizer import SHORT, Optimizer, RaceContext, TyreState
-from src.pitwall.race_data import race_overview
+from src.pitwall.race_data import load_session, neutralised_laps, normalize_laps, race_overview
+from src.pitwall.race_sim import Plan, RaceSim, SimParams, candidate_plans, fit_pace_model, fit_pass_model, pass_pairs, race_pace
 from src.pitwall.season import SEASON_DIR, get_schedule
 from src.pitwall.tyre_model import TyreModel, apply_behaviour
 from src.pitwall.weekend import YEAR, build_weekend, completed_rounds, race_fit, race_is_finished, event_sessions
@@ -39,6 +44,15 @@ BEHAVIOUR_GRID = [
     for hs in (0.0, 3.0, 8.0)
 ]
 DEFAULT_BEHAVIOUR = {"soft_mult": 1.6, "fuel_wear": 1.0, "stop_penalty": 4.0, "hard_start": 3.0}
+RACE_SIMS = 160
+# A circuit's overtaking difficulty from earlier seasons is shrunk toward the
+# 2026 average by this many pseudo-races (the 2026 cars race differently).
+VENUE_SHRINK_RACES = 1.0
+# The race simulation ranks only strategies the behaviour model gives at least
+# this probability (its stop count x starting tyre), like a pit wall
+# simulating a shortlist. Fixed in advance; walk-forward it lifted the start
+# tyre from 27% to 54% and cut the first-stop error from 9.8 to 7.9 laps.
+PLAUSIBLE_CLASS_P = 0.10
 
 
 def _ctx(w: dict, team: str | None = None, behaviour: dict | None = None, driver: str | None = None) -> RaceContext:
@@ -149,6 +163,139 @@ def conformal_q(residuals: list[float], level: float = CONFORMAL_LEVEL) -> float
     return float(np.sort(np.abs(residuals))[min(k, n) - 1])
 
 
+@lru_cache(maxsize=64)
+def race_pairs(rnd: int):
+    """Close-following laps of a finished dry race (see race_sim.pass_pairs)."""
+    fit = race_fit(rnd)
+    if not fit or fit.get("wet") or not fit.get("model"):
+        return None
+    from src.pitwall.live_sources import replay_path
+
+    path = replay_path(rnd)
+    if path.exists():
+        saved = pd.read_pickle(path)
+        laps, neutral = saved["laps"], saved["neutral_laps"]
+    else:
+        laps = normalize_laps(load_session(YEAR, rnd, "Race"))
+        nl = neutralised_laps(laps)
+        neutral = set(nl["sc"]) | set(nl["vsc"]) | set(nl["red"])
+    return pass_pairs(laps, neutral, fit["model"])
+
+
+def sim_params(rnd: int, drivers: list[dict], location: str) -> SimParams | None:
+    """Race-simulation inputs for round rnd, from earlier rounds only: race pace
+    from qualifying position + form, overtaking from 2026 races + this circuit's history."""
+    history = []
+    for r in range(1, rnd):
+        fit = race_fit(r) if race_is_finished(r) else None
+        if fit and fit.get("model") and not fit.get("wet"):
+            history.append((r, race_pace(fit["model"]), {d["driver"]: d.get("quali") or d.get("grid") for d in build_weekend(r)["drivers"]}))
+    pace_model = fit_pace_model(history, rnd)
+    passes = fit_pass_model({r: p for r in range(1, rnd) if race_is_finished(r) and (p := race_pairs(r)) is not None and len(p)})
+    # Pace from qualifying (how fast the car is); the grid, with penalties,
+    # only sets where it starts.
+    quali = {d["driver"]: d.get("quali") or d["grid"] for d in drivers if d.get("grid")}
+    if pace_model is None or passes is None or not quali:
+        return None
+    pace, pace_sd = pace_model(quali)
+    a, b, _ = passes
+    venue = track_history.venue_history(location)
+    offset = 0.0
+    if venue["pass_offset"] is not None:
+        offset = venue["pass_offset"] * venue["pass_races"] / (venue["pass_races"] + VENUE_SHRINK_RACES)
+    return SimParams(pace=pace, pace_sd=pace_sd, pass_a=a + offset, pass_b=b,
+                     info={"pass_a_2026": a, "pass_b": b, "venue_offset": offset, "venue_races": venue["pass_races"], "pace_coef": pace_model.coef,
+                           "p_pass_equal_pace": float(1 / (1 + np.exp(-(a + offset)))), "p_pass_1s_faster": float(1 / (1 + np.exp(-(a + offset + b))))})
+
+
+def _sim_option(o: dict) -> dict:
+    p = o["plan"]
+    return {"sequence": p.sequence, "pit_laps": p.pit_laps, "stops": len(p.pit_laps), "name": "-".join(SHORT.get(c, c[0]) for c in p.sequence)} | {
+        k: o[k] for k in ("expected_position", "position_sd", "p_points", "expected_points", "p_best")}
+
+
+def race_simulation(w: dict, drivers: list[dict], model: TyreModel, preds: dict, params: SimParams) -> dict:
+    """Best plan for every driver by expected finishing position, with the rest
+    of the field on its predicted plans, then the finishing-order forecast with
+    everyone on those best plans. A driver's candidates are cut to the
+    plausible strategies (PLAUSIBLE_CLASS_P) once the behaviour model has run.
+
+    `model` keeps the learned soft-tyre wear correction (thermal degradation the
+    linear wear curve misses; without it the simulation picks far fewer of the
+    compounds teams actually used), but the per-stop track-position cost and the
+    start-tyre penalty are left out: track position is simulated here."""
+    cars = [d for d in drivers if d.get("grid")]
+    ctx = RaceContext(total_laps=w["total_laps"], pit_loss=w["pit_loss"], sc_rate=w["sc_rate"], vsc_rate=w["vsc_rate"])
+    sim = RaceSim(model, ctx, cars, params, sims=RACE_SIMS)
+    field = {d["driver"]: Plan.of(preds[d["driver"]]["predicted"]) for d in cars if preds.get(d["driver"], {}).get("predicted")}
+    base = sim.field_arrays(field)
+    chosen = dict(field)
+    for d in cars:
+        if d["driver"] not in field:
+            continue
+        opt = Optimizer(model, replace(ctx, team=d.get("team"), driver=d["driver"]))
+        cands = candidate_plans(opt)
+        likely = preds[d["driver"]].get("likely")
+        if likely:
+            p_stops = {int(k): v for k, v in likely["stop_probabilities"].items()}
+            shortlist = [c for c in cands if p_stops.get(len(c.pit_laps), 0.0) * likely["start_probabilities"].get(c.sequence[0], 0.0) >= PLAUSIBLE_CLASS_P]
+            cands = shortlist or cands
+        ranked = sim.best_response(d["driver"], cands, field, base)
+        preds[d["driver"]]["racesim"] = {"best": _sim_option(ranked[0]), "options": [_sim_option(o) for o in ranked[:6]]}
+        chosen[d["driver"]] = ranked[0]["plan"]
+    return {"sims": RACE_SIMS, "params": params.info | {"pace_sd": params.pace_sd}, "drivers": sim.forecast(chosen),
+            "pace": params.pace}
+
+
+def simulate_round(data: dict) -> None:
+    """Last build stage for one round file: race simulation and its metrics."""
+    params = sim_params(data["round"], data["drivers"], data["location"])
+    if not params:
+        return
+    model = TyreModel.from_dict(data["weekend"]["model"])
+    data["race_forecast"] = _clean(race_simulation(data["weekend"], data["drivers"], model, data["predictions"], params))
+    for e in data["predictions"].values():
+        if "racesim" in e:
+            e["racesim"] = _clean(e["racesim"])
+    if data.get("metrics") and data.get("overview"):
+        data["metrics"].update(sim_metrics(data))
+
+
+def sim_metrics(data: dict) -> dict:
+    """Race-simulation picks vs what teams did, and the finishing-order forecast
+    vs the grid, on the round's evaluated (classified, dry-plan) drivers."""
+    rows = data["metrics"]["rows"]
+    for r in rows:
+        sim = data["predictions"].get(r["driver"], {}).get("racesim", {}).get("best")
+        a = data["predictions"].get(r["driver"], {}).get("actual")
+        if not sim or not a:
+            continue
+        r["sim_stops_match"] = sim["stops"] == a["stops"]
+        r["sim_compound_set_match"] = set(sim["sequence"]) == set(a["sequence"])
+        r["sim_start_compound_match"] = sim["sequence"][0] == a["sequence"][0]
+        r["sim_uses_hard"] = "HARD" in sim["sequence"]
+        if sim["pit_laps"] and a["pit_laps"]:
+            r["sim_first_stop_error"] = a["pit_laps"][0] - sim["pit_laps"][0]
+    sim_rows = [r for r in rows if "sim_stops_match" in r]
+    out = {}
+    if sim_rows:
+        errs = [abs(r["sim_first_stop_error"]) for r in sim_rows if "sim_first_stop_error" in r]
+        out = {"sim_stops_accuracy": float(np.mean([r["sim_stops_match"] for r in sim_rows])),
+               "sim_compound_set_accuracy": float(np.mean([r["sim_compound_set_match"] for r in sim_rows])),
+               "sim_start_compound_accuracy": float(np.mean([r["sim_start_compound_match"] for r in sim_rows])),
+               "sim_first_stop_mae": float(np.mean(errs)) if errs else None}
+    forecast = data["race_forecast"]["drivers"]
+    pos = {d["driver"]: d["position"] for d in data["overview"]["drivers"]
+           if d.get("position") and (d["status"] in ("Finished", "Lapped") or d["status"].startswith("+"))}
+    grid = {d["driver"]: d["grid"] for d in data["drivers"] if d.get("grid")}
+    common = [k for k in pos if k in grid and k in forecast]
+    if len(common) >= 8:
+        actual = [pos[k] for k in common]
+        out["forecast_order_rho"] = float(spearmanr([forecast[k]["expected_position"] for k in common], actual)[0])
+        out["grid_order_rho"] = float(spearmanr([grid[k] for k in common], actual)[0])
+    return out
+
+
 def build_round(rnd: int, behaviour: dict, q_first_stop: float | None) -> dict:
     w = build_weekend(rnd)
     raw_model = TyreModel.from_dict(w["model"])
@@ -209,7 +356,7 @@ def build_round(rnd: int, behaviour: dict, q_first_stop: float | None) -> dict:
         "format": w["format"],
         "status": "finished" if finished else "upcoming",
         "race_start_utc": str(event_sessions(YEAR, rnd).get("Race")),
-        "weekend": {k: w[k] for k in ("total_laps", "pit_loss", "sc_rate", "vsc_rate", "prior_races", "transfer", "offset_transfer", "short_run_offsets", "prior", "practice")}
+        "weekend": {k: w[k] for k in ("total_laps", "pit_loss", "sc_rate", "vsc_rate", "season_sc_rate", "season_vsc_rate", "venue_history", "prior_races", "transfer", "offset_transfer", "short_run_offsets", "prior", "practice")}
         | {"model": model.to_dict(), "raw_model": raw_model.to_dict(), "behaviour": behaviour,
            "stop_penalty": behaviour["stop_penalty"], "fuel_wear": behaviour["fuel_wear"], "first_stop_q": q_first_stop},
         "baseline": baseline,
@@ -218,6 +365,7 @@ def build_round(rnd: int, behaviour: dict, q_first_stop: float | None) -> dict:
         "predictions": preds,
         "overview": overview,
         "hindsight_model": fit["model"] if fit else None,
+        "race_forecast": None,  # filled by simulate_round after the behaviour model
         "metrics": metrics,
     }
 
@@ -232,6 +380,8 @@ def evaluate(preds: dict, overview: dict, fit: dict | None, baseline: dict | Non
         p, a = e["predicted"], e["actual"]
         dry = all(c in ("SOFT", "MEDIUM", "HARD") for c in a["sequence"])
         row = {
+            "uses_hard_pred": "HARD" in p["sequence"],
+            "uses_hard_actual": "HARD" in a["sequence"],
             "driver": drv,
             "stops_match": p["stops"] == a["stops"],
             "compound_set_match": set(p["sequence"]) == set(a["sequence"]),
@@ -333,16 +483,18 @@ def main(only: int | None = None) -> None:
         else:
             print(f"R{rnd:02d} {data['location']:<14} b={behaviour} q={q} (pre-race build)", flush=True)
     write_index()
-    # Second stage: learn team behaviour on top of the physics predictions.
+    # Second stage: learn team behaviour on top of the physics predictions;
+    # third: race simulation over each driver's plausible strategies.
     from src.pitwall import behaviour_model
 
-    behaviour_model.main()
+    behaviour_model.main(after_round=simulate_round)
 
 
 def write_index() -> None:
     sched = get_schedule(YEAR)
     rounds = []
     agg_rows = []
+    order_rho: list[tuple[float, float]] = []
     for _, ev in sched.iterrows():
         rnd = int(ev["RoundNumber"])
         path = OUT_DIR / f"r{rnd:02d}.json"
@@ -362,6 +514,8 @@ def write_index() -> None:
                 entry["metrics"] = {k: v for k, v in m.items() if k not in ("rows", "first_stop_errors")}
                 if not m["wet"] and data["round"] > 3:  # rounds 1-3 have almost no prior: report separately
                     agg_rows += m["rows"]
+                    if m.get("forecast_order_rho") is not None:
+                        order_rho.append((m["forecast_order_rho"], m["grid_order_rho"]))
         else:
             entry["status"] = "finished" if race_is_finished(rnd) else "upcoming"
         rounds.append(entry)
@@ -390,6 +544,30 @@ def write_index() -> None:
             "first_stop_mae": float(np.mean([abs(r["baseline_first_stop_error"]) for r in agg_rows if "baseline_first_stop_error" in r])) if agg_rows else None,
         },
     }
+    sim_rows = [r for r in agg_rows if "sim_stops_match" in r]
+    if sim_rows:
+        sim_errs = [abs(r["sim_first_stop_error"]) for r in sim_rows if "sim_first_stop_error" in r]
+        phys_errs = [abs(r["first_stop_error"]) for r in sim_rows if "first_stop_error" in r]
+        backtest["racesim"] = {
+            "description": "full-field race simulation (traffic, overtaking, SC/VSC); each driver's plan chosen by expected finishing position",
+            "driver_races": len(sim_rows),
+            "stops_accuracy": float(np.mean([r["sim_stops_match"] for r in sim_rows])),
+            "compound_set_accuracy": float(np.mean([r["sim_compound_set_match"] for r in sim_rows])),
+            "start_compound_accuracy": float(np.mean([r["sim_start_compound_match"] for r in sim_rows])),
+            "first_stop_mae": float(np.mean(sim_errs)) if sim_errs else None,
+            "uses_hard": float(np.mean([r["sim_uses_hard"] for r in sim_rows])),
+            "physics_on_same_rows": {
+                "stops_accuracy": float(np.mean([r["stops_match"] for r in sim_rows])),
+                "compound_set_accuracy": float(np.mean([r["compound_set_match"] for r in sim_rows])),
+                "start_compound_accuracy": float(np.mean([r["start_compound_match"] for r in sim_rows])),
+                "first_stop_mae": float(np.mean(phys_errs)) if phys_errs else None,
+                "uses_hard": float(np.mean([r["uses_hard_pred"] for r in sim_rows])),
+            },
+            "actual_uses_hard": float(np.mean([r["uses_hard_actual"] for r in sim_rows])),
+        }
+        if order_rho:
+            backtest["racesim"]["finishing_order_rho"] = float(np.mean([a for a, _ in order_rho]))
+            backtest["racesim"]["grid_order_rho"] = float(np.mean([b for _, b in order_rho]))
     (OUT_DIR / "backtest.json").write_text(json.dumps(_clean(backtest), indent=1))
     print(json.dumps(_clean(backtest), indent=1))
     try:  # experiment tracking (kept from the original project)

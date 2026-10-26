@@ -41,7 +41,8 @@ def load_round(rnd: int) -> dict:
 
 
 def weekend_for(rnd: int) -> dict:
-    return load_round(rnd)["weekend"]
+    data = load_round(rnd)
+    return data["weekend"] | {"race_forecast": data.get("race_forecast")}
 
 
 def _season() -> dict:

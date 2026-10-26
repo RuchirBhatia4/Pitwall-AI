@@ -33,7 +33,10 @@ OUT_DIR = SEASON_DIR / "2026"
 MIN_TRAIN_ROUNDS = 3
 DRY = ("SOFT", "MEDIUM", "HARD")
 FEATURES = ["gap_1v2", "gap_2v3", "opt_first_frac", "deg_S", "deg_M", "deg_H", "off_S", "off_H",
-            "pit_loss", "laps", "sc_rate", "grid_frac", "sprint"]
+            "pit_loss", "laps", "sc_rate", "grid_frac", "sprint", "practice_soft_share", "practice_hard_share"]
+# Practice tyre use says which tyres a team will race, not when it stops
+# (late-season first-stop error 13.2 -> 12.0 laps without them in the timing model).
+TIMING_FEATURES = [f for f in FEATURES if not f.startswith("practice_")]
 
 
 def _ctx(w: dict, team: str | None, driver: str | None = None) -> RaceContext:
@@ -60,6 +63,11 @@ def driver_features(data: dict, driver: dict, classes: dict) -> dict:
         by_stops[k] = min(by_stops.get(k, INF), s.total)
     best = min(classes.values(), key=lambda s: s.total)
     grid = driver.get("grid") or 11
+    # Teams run their race simulations in practice on the tyres they plan to
+    # race: the weekend's share of long-run laps per compound is revealed
+    # preference (walk-forward: +10 points on stop count, +5 on start tyre).
+    run_laps = {c: sum(r["laps"] for r in data.get("practice_runs", []) if r["compound"] == c) for c in DRY}
+    total_run = sum(run_laps.values()) or 1
     return {
         "gap_1v2": float(np.clip(by_stops.get(2, INF) - by_stops.get(1, INF), -60, 60)),
         "gap_2v3": float(np.clip(by_stops.get(3, INF) - by_stops.get(2, INF), -60, 60)),
@@ -68,6 +76,7 @@ def driver_features(data: dict, driver: dict, classes: dict) -> dict:
         "off_S": m.get("SOFT", {}).get("offset", -0.3), "off_H": m.get("HARD", {}).get("offset", 0.3),
         "pit_loss": w["pit_loss"], "laps": L, "sc_rate": w["sc_rate"], "grid_frac": grid / 22.0,
         "sprint": 1.0 if "sprint" in data.get("format", "") else 0.0,
+        "practice_soft_share": run_laps["SOFT"] / total_run, "practice_hard_share": run_laps["HARD"] / total_run,
     }
 
 
@@ -111,9 +120,11 @@ def _fit_predict(train: list[dict], test: list[dict]) -> list[dict]:
         proba = clf.predict_proba(Xt)
         for o, p in zip(out, proba):
             o[target] = {c: float(pv) for c, pv in zip(clf.classes_, p)}
+    Xr = np.array([[r["x"][f] for f in TIMING_FEATURES] for r in train])
+    Xrt = np.array([[r["x"][f] for f in TIMING_FEATURES] for r in test])
     reg = make_pipeline(StandardScaler(), Ridge(alpha=5.0))
-    reg.fit(X, np.array([r["y_first_frac"] for r in train]))
-    for o, v in zip(out, reg.predict(Xt)):
+    reg.fit(Xr, np.array([r["y_first_frac"] for r in train]))
+    for o, v in zip(out, reg.predict(Xrt)):
         o["first_frac"] = float(np.clip(v, 0.08, 0.85))
     return out
 
@@ -138,7 +149,9 @@ def likely_plan(row: dict, pred: dict, total_laps: int) -> Strategy | None:
     return None
 
 
-def main() -> None:
+def main(after_round=None) -> None:
+    """after_round(data): optional final step per round (the race simulation,
+    which shortlists the strategies this model calls plausible)."""
     files = sorted(OUT_DIR.glob("r[0-9][0-9].json"))
     rounds = {int(f.stem[1:]): json.loads(f.read_text()) for f in files}
     rows = {r: build_rows(d) for r, d in rounds.items()}
@@ -146,10 +159,11 @@ def main() -> None:
         data = rounds[rnd]
         train = [x for r in sorted(rows) if r < rnd for x in rows[r] if "y_stops" in x]
         n_rounds = len({x["round"] for x in train})
-        if n_rounds < MIN_TRAIN_ROUNDS:
-            continue
         test = rows[rnd]
-        if not test:  # pre-race build before qualifying: no drivers to predict yet
+        if n_rounds < MIN_TRAIN_ROUNDS or not test:  # too little history / pre-race build before qualifying
+            if after_round:
+                after_round(data)
+                (OUT_DIR / f"r{rnd:02d}.json").write_text(json.dumps(data))
             continue
         preds = _fit_predict(train, test)
         L = data["weekend"]["total_laps"]
@@ -166,6 +180,8 @@ def main() -> None:
             }
         if data.get("metrics"):
             data["metrics"].update(_evaluate_likely(data))
+        if after_round:
+            after_round(data)
         (OUT_DIR / f"r{rnd:02d}.json").write_text(json.dumps(data))
         m = data.get("metrics") or {}
         print(f"R{rnd:02d} trained on {n_rounds} rounds | likely stops={m.get('likely_stops_accuracy')} set={m.get('likely_compound_set_accuracy')} "

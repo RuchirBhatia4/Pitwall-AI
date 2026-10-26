@@ -58,3 +58,32 @@ def test_driver_names_use_proper_case():
     }, index=[1])
     out = sess._results(res, drivers, pd.DataFrame())
     assert out.loc[0, "FullName"] == "Max Verstappen"
+
+
+class _Quali:
+    results = pd.DataFrame({"Abbreviation": ["AAA", "BBB", "CCC"], "DriverNumber": ["1", "2", "3"], "Position": [1, 2, 3]})
+
+
+def _grid_setup(monkeypatch, official):
+    from src.pitwall import race_data
+
+    monkeypatch.setattr(race_data, "load_session", lambda *a: _Quali())
+    monkeypatch.setattr(race_data, "event_sessions", lambda *a: {"Qualifying": pd.Timestamp("2026-10-24 21:00")})
+    monkeypatch.setattr(openf1_data, "starting_grid", official)
+    return race_data
+
+
+def test_official_starting_grid_applies_penalties(monkeypatch):
+    race_data = _grid_setup(monkeypatch, lambda *a: {"1": 3, "2": 1, "3": 2})  # AAA dropped to the back
+    assert race_data.qualifying_grid(2026, 18) == {"BBB": 1, "CCC": 2, "AAA": 3}
+
+
+def test_qualifying_order_until_the_grid_is_published(monkeypatch):
+    race_data = _grid_setup(monkeypatch, lambda *a: {})
+    assert race_data.qualifying_grid(2026, 18) == {"AAA": 1, "BBB": 2, "CCC": 3}
+
+    def offline(*a):
+        raise openf1_data.OpenF1Unavailable("down")
+
+    race_data = _grid_setup(monkeypatch, offline)
+    assert race_data.qualifying_grid(2026, 18) == {"AAA": 1, "BBB": 2, "CCC": 3}

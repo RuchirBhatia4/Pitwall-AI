@@ -332,6 +332,18 @@ def _find_round(text: str, context: dict) -> int:
     return context.get("round") or s.get("live_round") or s.get("next_round") or 16
 
 
+def _with_grid(rnd: int) -> int:
+    """rnd, or the latest earlier round with a grid: until qualifying, the next
+    race has no drivers or predictions yet."""
+    for r in range(rnd, 0, -1):
+        try:
+            if _load(r)["drivers"]:
+                return r
+        except Exception:  # round not built
+            continue
+    return rnd
+
+
 def _find_driver(text: str, rnd: int) -> str | None:
     d = _load(rnd)
     t = text.upper()
@@ -363,15 +375,21 @@ def chat_engine(messages: list[dict], context: dict) -> dict:
                               f"first-stop error {b['first_stop_mae']:.1f} laps (baseline {b['baseline']['first_stop_mae']:.1f}). "
                               f"80% conformal intervals covered {b['conformal_coverage']:.0%} of actual first stops."),
                     "tools_used": used, "mode": "engine (no LLM key configured)"}
-        rnd = _find_round(q, context)
+        asked = _find_round(q, context)
+        rnd = _with_grid(asked)
         drv = _find_driver(q, rnd)
+        note = ""
+        if rnd != asked:
+            note = f"R{asked} {_load(asked)['event']} has no grid until qualifying, so this is from R{rnd} {_load(rnd)['event']}. "
+            if not drv:
+                rnd = asked
         if drv and ("safety car" in t or re.search(r"\bsc\b", t)):
             m = re.search(r"lap\s?(\d{1,2})", t)
             lap = int(m.group(1)) if m else 20
             used.append("safety_car_whatif")
             r = tool_safety_car_whatif(rnd, drv, lap)
             gain = f" — saves about {r['time_saved_by_boxing_s']}s vs staying out" if r.get("time_saved_by_boxing_s") else ""
-            return {"reply": (f"SC on lap {lap}: {drv} would be on {r['tyre_at_sc']['compound'].title()}s, {r['tyre_at_sc']['age_laps']} laps old. "
+            return {"reply": (f"{note}SC on lap {lap}: {drv} would be on {r['tyre_at_sc']['compound'].title()}s, {r['tyre_at_sc']['age_laps']} laps old. "
                               f"A stop costs ~{r['pit_cost_under_sc_s']}s under SC vs {r['green_pit_cost_s']}s green. Call: {r['call']}{gain}. "
                               f"Plan from there: {_fmt_plan(r['best_plan_from_there'])}."), "tools_used": used, "mode": "engine (no LLM key configured)"}
         if drv and any(k in t for k in ("now", "live", "box", "this lap")):
@@ -385,7 +403,7 @@ def chat_engine(messages: list[dict], context: dict) -> dict:
             r = tool_driver_strategy(rnd, drv)
             if "error" in r:
                 return {"reply": r["error"], "tools_used": used, "mode": "engine (no LLM key configured)"}
-            lines = [f"{r['name']} ({r['team']}), {r['event']}: fastest plan {_fmt_plan(r['fastest_plan_physics'])}."]
+            lines = [f"{note}{r['name']} ({r['team']}), {r['event']}: fastest plan {_fmt_plan(r['fastest_plan_physics'])}."]
             if r.get("likely_plan_team_behaviour_model"):
                 lk = r["likely_plan_team_behaviour_model"]
                 probs = ", ".join(f"{k}-stop {v:.0%}" for k, v in sorted((lk.get("stop_count_probabilities") or {}).items()))
@@ -407,7 +425,8 @@ def chat_engine(messages: list[dict], context: dict) -> dict:
         used.append("race_summary")
         r = tool_race_summary(rnd)
         mix = ", ".join(f"{k} ×{v}" for k, v in r["predicted_strategies_count"].items())
-        lines = [f"R{rnd} {r['event']} ({r['location']}, {r['laps']} laps, pit loss {r['pit_loss_s']}s). Predicted strategy mix: {mix}."]
+        mix = f"Predicted strategy mix: {mix}." if mix else "Strategy predictions appear once qualifying sets the grid."
+        lines = [f"R{rnd} {r['event']} ({r['location']}, {r['laps']} laps, pit loss {r['pit_loss_s']}s). {mix}"]
         if r.get("top5"):
             lines.append("Result: " + "; ".join(r["top5"]) + ".")
             lines.append("Actual strategies: " + ", ".join(f"{k} ×{v}" for k, v in r["actual_strategies_count"].items()) + ".")

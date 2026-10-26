@@ -12,6 +12,7 @@ import { SequencePills, TyreBadge, compoundName } from "@/components/Tyre";
 import { DegradationChart } from "@/components/Charts";
 import { PlanTable } from "@/components/PlanTable";
 import { StopOdds } from "@/components/StopOdds";
+import { FinishForecast, SimTable } from "@/components/RaceSim";
 
 function planRow(key: string, label: string, s: { sequence: string[]; pit_laps: number[] }, total: number, extra?: Partial<TimelineRow>): TimelineRow {
   const bounds = [1, ...s.pit_laps.map((p) => p + 1), total + 1];
@@ -130,16 +131,59 @@ export function RaceView({ round }: { round: number }) {
   const sel = driver ?? drivers[0]?.driver ?? null;
 
   if (error) return <div className="mx-auto max-w-7xl px-4 sm:px-6 py-10 text-bad">{error}</div>;
-  if (!race || !sel) return <div className="mx-auto max-w-7xl px-4 sm:px-6 py-10 text-text-3">Loading race…</div>;
+  if (!race) return <div className="mx-auto max-w-7xl px-4 sm:px-6 py-10 text-text-3">Loading race…</div>;
 
   const w = race.weekend;
   const L = race.overview?.total_laps ?? w.total_laps;
+  const finished = race.status === "finished";
+  const head = (
+    <>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <Link href="/" className="text-sm text-text-3 hover:text-text inline-flex items-center gap-1">
+            <ArrowLeft size={14} /> Season
+          </Link>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">
+            <span className="text-text-3 tabular mr-2">R{String(race.round).padStart(2, "0")}</span>
+            {race.event}
+          </h1>
+          <p className="text-text-2 mt-1">
+            {race.location} · {race.date} · {L} laps · {finished ? "Finished" : "Pre-race prediction"}
+          </p>
+        </div>
+        {!finished && (
+          <Link href="/live" className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 font-semibold hover:brightness-110">
+            <Radio size={16} /> Live pit wall
+          </Link>
+        )}
+      </div>
+
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
+        <Stat label="Pit-lane loss" value={secs(w.pit_loss)} sub={race.overview?.pit_loss ? "measured from green-flag stops" : w.venue_history?.pit_loss ? "2024–25 races here, blended with the 2026 median" : "season median (no data at this track)"} />
+        <Stat label="SC / VSC hazard" value={`${(w.sc_rate * 100).toFixed(1)}% / ${(w.vsc_rate * 100).toFixed(1)}%`} sub={w.venue_history?.races ? `per lap: 2026 races + ${w.venue_history.races} earlier race${w.venue_history.races > 1 ? "s" : ""} here (${w.venue_history.sc_starts} SC, ${w.venue_history.vsc_starts} VSC)` : "per lap, from earlier 2026 races"} />
+        <Stat label="Practice → race wear" value={`× ${w.transfer.beta.toFixed(2)}`} sub={`learned on ${w.transfer.n} compound-weekends`} />
+        <Stat label="Long runs analysed" value={race.practice_runs.length} sub="FP / sprint stints ≥ 5 laps" />
+        <Stat label="Prior races" value={w.prior_races} sub="walk-forward: no future data" />
+      </div>
+    </>
+  );
+  // Before qualifying there is no grid, so no driver to predict for yet.
+  if (!sel)
+    return (
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8 space-y-6">
+        {head}
+        <p className="text-text-2">Strategy predictions appear once qualifying sets the grid.</p>
+      </div>
+    );
+
   const pred = race.predictions[sel];
   const d = race.drivers.find((x) => x.driver === sel)!;
-  const finished = race.status === "finished";
   const m = race.metrics;
 
   const rows: TimelineRow[] = [];
+  const sim = pred.racesim?.best;
+  const fc = race.race_forecast;
+  if (sim) rows.push(planRow("sim", "Race sim", sim, L, { sublabel: sim.name, color: "var(--good)" }));
   if (pred.likely) rows.push(planRow("likely", "Likely call", pred.likely, L, { sublabel: pred.likely.name, color: "var(--info)" }));
   if (pred.predicted)
     rows.push(planRow("pred", "Fastest", pred.predicted, L, { sublabel: pred.predicted.name, windows: pred.predicted.windows, interval: pred.first_stop_interval ?? null }));
@@ -165,35 +209,9 @@ export function RaceView({ round }: { round: number }) {
 
   return (
     <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8 space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <Link href="/" className="text-sm text-text-3 hover:text-text inline-flex items-center gap-1">
-            <ArrowLeft size={14} /> Season
-          </Link>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-            <span className="text-text-3 tabular mr-2">R{String(race.round).padStart(2, "0")}</span>
-            {race.event}
-          </h1>
-          <p className="text-text-2 mt-1">
-            {race.location} · {race.date} · {L} laps · {finished ? "Finished" : "Pre-race prediction"}
-          </p>
-        </div>
-        {!finished && (
-          <Link href="/live" className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 font-semibold hover:brightness-110">
-            <Radio size={16} /> Live pit wall
-          </Link>
-        )}
-      </div>
+      {head}
 
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
-        <Stat label="Pit-lane loss" value={secs(w.pit_loss)} sub={race.overview?.pit_loss ? "measured from green-flag stops" : "season median (no data at this track)"} />
-        <Stat label="SC / VSC hazard" value={`${(w.sc_rate * 100).toFixed(1)}% / ${(w.vsc_rate * 100).toFixed(1)}%`} sub="per lap, from earlier 2026 races" />
-        <Stat label="Practice → race wear" value={`× ${w.transfer.beta.toFixed(2)}`} sub={`learned on ${w.transfer.n} compound-weekends`} />
-        <Stat label="Long runs analysed" value={race.practice_runs.length} sub="FP / sprint stints ≥ 5 laps" />
-        <Stat label="Prior races" value={w.prior_races} sub="walk-forward: no future data" />
-      </div>
-
-      <Section title="Choose a driver" subtitle={finished ? "Ordered by finishing position" : "Ordered by qualifying position"}>
+      <Section title="Choose a driver" subtitle={finished ? "Ordered by finishing position" : "Ordered by starting grid (official grid with penalties once published, else qualifying)"}>
         <DriverPicker
           drivers={drivers.map((x) => ({ driver: x.driver, team: x.team, color: x.color, sub: finished ? (x.position ? `P${x.position}` : null) : x.grid ? `P${x.grid}` : null }))}
           value={sel}
@@ -207,13 +225,25 @@ export function RaceView({ round }: { round: number }) {
           title={`${d.name} · ${d.team}`}
           subtitle={
             <>
-              Likely call = behaviour model (what the team will probably do). Fastest = physics optimum; blue band = its pit window (within 2 s), bracket = 80% conformal interval for the first stop.
+              Race sim = best finishing position in a full-field race simulation (traffic, overtaking, Safety Cars). Likely call = behaviour model (what the team will probably do). Fastest = physics optimum; blue band = its pit window (within 2 s), bracket = 80% conformal interval for the first stop.
               {race.overview && race.overview.neutralised.sc.length > 0 && " Amber = Safety Car laps."}
             </>
           }
         >
           <StintTimeline rows={rows} totalLaps={L} neutralised={race.overview?.neutralised} rowHeight={34} />
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {sim && (
+              <div className="rounded-lg bg-surface-2 p-3">
+                <div className="label">Race simulation pick</div>
+                <div className="mt-1 flex items-center gap-2">
+                  <SequencePills sequence={sim.sequence} />
+                  <span className="text-sm text-text-2 tabular">{sim.pit_laps.map((l) => `L${l}`).join(" · ")}</span>
+                </div>
+                <div className="mt-1 text-xs text-text-3 tabular">
+                  Exp. finish P{sim.expected_position.toFixed(1)} ± {sim.position_sd.toFixed(1)} · points {pct(sim.p_points)} · {sim.expected_points.toFixed(1)} pts
+                </div>
+              </div>
+            )}
             {pred.likely && (
               <div className="rounded-lg bg-surface-2 p-3">
                 <div className="label">Likely team call</div>
@@ -292,13 +322,31 @@ export function RaceView({ round }: { round: number }) {
         </Section>
       </div>
 
+      {pred.racesim && fc && (
+        <Section
+          title="Strategy options by finishing position"
+          subtitle={`${fc.sims} simulated races of the whole field, each rival on its predicted plan: traffic, overtaking (${pct(fc.params.p_pass_1s_faster)} chance per lap to pass a car 1 s/lap slower here), Safety Cars and VSCs, pit-stop times, tyre-model uncertainty`}
+        >
+          <SimTable options={pred.racesim.options} />
+        </Section>
+      )}
+
       {pred.alternatives?.length > 0 && (
         <Section title="Strategy options" subtitle="Ranked by expected time after simulating Safety Cars, VSCs and tyre-model uncertainty (300 simulated races)">
           <PlanTable plans={pred.alternatives} chosen={pred.predicted?.name} />
         </Section>
       )}
 
-      <Section title={race.overview ? "How the field actually raced" : "Predicted strategy for the whole grid"} subtitle={race.overview ? "Every driver's stints, finishing order" : "One row per driver, qualifying order"}>
+      {fc && (
+        <Section
+          title="Race simulation: finishing order"
+          subtitle={`Every driver on their race-simulation plan, ${fc.sims} races. Race pace from qualifying and recent form (±${fc.params.pace_sd.toFixed(2)} s/lap); overtaking learned from 2026 races${fc.params.venue_races ? ` and ${fc.params.venue_races} earlier race${fc.params.venue_races > 1 ? "s" : ""} at this track` : ""}.`}
+        >
+          <FinishForecast forecast={fc} drivers={race.overview ? race.overview.drivers.map((x) => ({ ...x, grid: race.drivers.find((g) => g.driver === x.driver)?.grid ?? x.grid })) : race.drivers} finished={finished} selected={sel} />
+        </Section>
+      )}
+
+      <Section title={race.overview ? "How the field actually raced" : "Predicted strategy for the whole grid"} subtitle={race.overview ? "Every driver's stints, finishing order" : "One row per driver, starting-grid order"}>
         <StintTimeline rows={fieldRows} totalLaps={L} neutralised={race.overview?.neutralised} rowHeight={22} />
       </Section>
 
@@ -309,6 +357,12 @@ export function RaceView({ round }: { round: number }) {
       {m && (
         <Section title="How good was the prediction here?" subtitle={m.wet ? "Wet race — dry-tyre metrics shown for reference only" : `Classified finishers (${m.drivers_evaluated})`}>
           <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
+            {m.sim_stops_accuracy != null && (
+              <Stat label="Race sim: stops correct" value={pct(m.sim_stops_accuracy)} sub={`compound set ${pct(m.sim_compound_set_accuracy)} · first stop ${m.sim_first_stop_mae != null ? `${m.sim_first_stop_mae.toFixed(1)} laps` : "—"}`} />
+            )}
+            {m.forecast_order_rho != null && (
+              <Stat label="Finishing order" value={`ρ ${m.forecast_order_rho.toFixed(2)}`} sub={`rank correlation with the result · grid order ρ ${m.grid_order_rho?.toFixed(2)}`} />
+            )}
             <Stat label="Stops correct" value={pct(m.likely_stops_accuracy ?? m.stops_accuracy)} sub={`physics ${pct(m.stops_accuracy)} · baseline ${pct(m.baseline_stops_accuracy)}`} />
             <Stat label="Compound set correct" value={pct(m.likely_compound_set_accuracy ?? m.compound_set_accuracy)} sub={`physics ${pct(m.compound_set_accuracy)} · baseline ${pct(m.baseline_compound_set_accuracy)}`} />
             <Stat label="First stop error" value={m.first_stop_mae != null ? `${m.first_stop_mae.toFixed(1)} laps` : "—"} sub={m.first_stop_bias != null ? `teams stopped ${Math.abs(m.first_stop_bias).toFixed(1)} laps ${m.first_stop_bias > 0 ? "later" : "earlier"} on average` : undefined} />

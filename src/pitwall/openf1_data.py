@@ -89,6 +89,13 @@ def find_session_key(year: int, name: str, start_utc: pd.Timestamp) -> int:
     return int(df.loc[gap.idxmin(), "session_key"])
 
 
+def starting_grid(year: int, qualifying_start: pd.Timestamp) -> dict[str, int]:
+    """Official starting grid (driver number -> slot), grid penalties included,
+    once OpenF1 has published it for the qualifying session; {} before that."""
+    key = find_session_key(year, "Qualifying", qualifying_start)
+    return {str(g["driver_number"]): int(g["position"]) for g in _get("starting_grid", session_key=key) if g.get("position")}
+
+
 class OpenF1Session:
     """The parts of fastf1.core.Session the pipeline uses, built from OpenF1."""
 

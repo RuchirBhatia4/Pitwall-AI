@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import clsx from "clsx";
 import { AlertTriangle, ArrowDownRight, ArrowUpRight, CircleSlash, Flag, Gauge, Plug, Radio, RefreshCcw, ShieldAlert, Wifi, WifiOff } from "lucide-react";
 import { api, pct, secs, useApi, usePoll } from "@/lib/api";
+import { SimTable } from "@/components/RaceSim";
 import type { Analysis, LiveStatus, RaceFile, RaceState, Season } from "@/lib/types";
 import { DriverPicker } from "@/components/DriverPicker";
 import { Section } from "@/components/Stat";
@@ -247,6 +248,14 @@ function AnalysisView({ a, state, onSelect }: { a: Analysis; state: RaceState | 
         {plans.length > 0 && (
           <Section title="All options from here" subtitle="Monte Carlo over future Safety Cars / VSCs and tyre-model uncertainty">
             <PlanTable plans={plans} chosen={plans[0]?.name} />
+          </Section>
+        )}
+        {a.race_sim?.options && a.race_sim.options.length > 0 && (
+          <Section
+            title="Race simulation from here"
+            subtitle={`Where each option finishes: ${a.race_sim.sims} simulations of the rest of the race for the whole field, from the current gaps and tyres, with rivals on their predicted plans, traffic, overtaking difficulty at this track and Safety Cars. Shown alongside the call; the call itself still comes from the lap-time plan.`}
+          >
+            <SimTable options={a.race_sim.options} />
           </Section>
         )}
         <Section title="Tyre model, live" subtitle="Current stint vs the model (80% band). Bayesian-updated from every car's green-flag laps.">

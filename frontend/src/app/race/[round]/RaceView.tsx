@@ -187,6 +187,8 @@ export function RaceView({ round }: { round: number }) {
   const pred = race.predictions[sel];
   const d = race.drivers.find((x) => x.driver === sel)!;
   const m = race.metrics;
+  const stopLaps = pred.actual?.stop_laps;
+  const actualFirst = (stopLaps ?? pred.actual?.pit_laps)?.[0];
 
   const rows: TimelineRow[] = [];
   const sim = pred.racesim?.best;
@@ -318,12 +320,14 @@ export function RaceView({ round }: { round: number }) {
                 <div className="label">What the team did</div>
                 <div className="mt-1 flex items-center gap-2">
                   <SequencePills sequence={pred.actual.sequence} />
-                  <span className="text-sm text-text-2 tabular">{pred.actual.pit_laps.map((l) => `L${l}`).join(" · ")}</span>
+                  <span className="text-sm text-text-2 tabular">
+                    {pred.actual.pit_laps.map((l) => `L${l}${stopLaps && !stopLaps.includes(l) ? " (red flag)" : ""}`).join(" · ")}
+                  </span>
                 </div>
-                {(pred.likely ?? pred.predicted)?.pit_laps[0] && pred.actual.pit_laps[0] && (
+                {(pred.likely ?? pred.predicted)?.pit_laps[0] && actualFirst && (
                   <div className="mt-1 text-xs text-text-3">
-                    First stop {pred.actual.pit_laps[0] - (pred.likely ?? pred.predicted)!.pit_laps[0] >= 0 ? "+" : ""}
-                    {pred.actual.pit_laps[0] - (pred.likely ?? pred.predicted)!.pit_laps[0]} laps vs {pred.likely ? "likely call" : "prediction"}
+                    First stop {actualFirst - (pred.likely ?? pred.predicted)!.pit_laps[0] >= 0 ? "+" : ""}
+                    {actualFirst - (pred.likely ?? pred.predicted)!.pit_laps[0]} laps vs {pred.likely ? "likely call" : "prediction"}
                   </div>
                 )}
               </div>

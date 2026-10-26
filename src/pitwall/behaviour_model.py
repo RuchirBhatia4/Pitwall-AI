@@ -10,9 +10,10 @@ races, using physics outputs as features:
     targets   = stop count (1/2/3), starting compound, first-stop fraction
 
 Small, regularised models (multinomial logistic regression, ridge) trained
-walk-forward: round R is predicted from rounds < R only. The final "likely"
-plan is the physics-optimal plan *within* the predicted stop count / starting
-tyre, with the first stop moved to the predicted lap.
+walk-forward: round R is predicted from rounds < R only, and so is how
+strongly they are regularised (see choose_strength). The final "likely" plan
+is the physics-optimal plan *within* the predicted stop count / starting tyre,
+with the first stop moved to the predicted lap.
 
     python -m src.pitwall.behaviour_model      # after build_season
 """
@@ -25,6 +26,7 @@ from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
+from src.pitwall.build_season import first_stop
 from src.pitwall.optimizer import INF, SHORT, Optimizer, RaceContext, Strategy, TyreState
 from src.pitwall.season import SEASON_DIR
 from src.pitwall.tyre_model import TyreModel
@@ -37,6 +39,12 @@ FEATURES = ["gap_1v2", "gap_2v3", "opt_first_frac", "deg_S", "deg_M", "deg_H", "
 # Practice tyre use says which tyres a team will race, not when it stops
 # (late-season first-stop error 13.2 -> 12.0 laps without them in the timing model).
 TIMING_FEATURES = [f for f in FEATURES if not f.startswith("practice_")]
+# Regularisation strengths to choose from, walk-forward (choose_strength):
+# inverse L2 strength of the classifiers, ridge penalty of the timing model.
+# Until enough rounds have been scored, the defaults are used.
+C_GRID = (0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0)
+ALPHA_GRID = (1.0, 5.0, 25.0, 125.0, 625.0)
+DEFAULT_STRENGTH = {"y_stops": 0.5, "y_start": 0.5, "alpha": 5.0}
 
 
 def _sets(w: dict, driver: str | None) -> dict | None:
@@ -109,34 +117,72 @@ def build_rows(data: dict) -> list[dict]:
         if act and data.get("metrics") and not data["metrics"]["wet"] and _finished(d) and 1 <= act["stops"] <= 3 and all(c in DRY for c in act["sequence"]):
             row["y_stops"] = act["stops"]
             row["y_start"] = act["sequence"][0]
-            row["y_first_frac"] = act["pit_laps"][0] / w["total_laps"]
+            row["y_first_frac"] = first_stop(act) / w["total_laps"]
         rows.append(row)
     return rows
 
 
-def _fit_predict(train: list[dict], test: list[dict]) -> list[dict]:
-    X = np.array([[r["x"][f] for f in FEATURES] for r in train])
-    Xt = np.array([[r["x"][f] for f in FEATURES] for r in test])
+def _classifier(train: list[dict], target: str, C: float):
+    """Fitted classifier, or the single class every training row has."""
+    y = np.array([r[target] for r in train])
+    classes = sorted(set(y.tolist()))
+    if len(classes) == 1:
+        return classes[0]
+    clf = make_pipeline(StandardScaler(), LogisticRegression(C=C, max_iter=2000))
+    return clf.fit(np.array([[r["x"][f] for f in FEATURES] for r in train]), y)
+
+
+def _class_probs(clf, test: list[dict]) -> list[dict]:
+    if not hasattr(clf, "predict_proba"):
+        return [{clf: 1.0} for _ in test]
+    proba = clf.predict_proba(np.array([[r["x"][f] for f in FEATURES] for r in test]))
+    return [{c: float(pv) for c, pv in zip(clf.classes_, p)} for p in proba]
+
+
+def _first_fracs(train: list[dict], test: list[dict], alpha: float) -> list[float]:
+    reg = make_pipeline(StandardScaler(), Ridge(alpha=alpha))
+    reg.fit(np.array([[r["x"][f] for f in TIMING_FEATURES] for r in train]), np.array([r["y_first_frac"] for r in train]))
+    return [float(np.clip(v, 0.08, 0.85)) for v in reg.predict(np.array([[r["x"][f] for f in TIMING_FEATURES] for r in test]))]
+
+
+def _fit_predict(train: list[dict], test: list[dict], strength: dict | None = None) -> list[dict]:
+    strength = strength or DEFAULT_STRENGTH
     out = [{} for _ in test]
     for target in ("y_stops", "y_start"):
-        y = np.array([r[target] for r in train])
-        classes = sorted(set(y.tolist()))
-        if len(classes) == 1:
-            for o in out:
-                o[target] = {classes[0]: 1.0}
-            continue
-        clf = make_pipeline(StandardScaler(), LogisticRegression(C=0.5, max_iter=2000))
-        clf.fit(X, y)
-        proba = clf.predict_proba(Xt)
-        for o, p in zip(out, proba):
-            o[target] = {c: float(pv) for c, pv in zip(clf.classes_, p)}
-    Xr = np.array([[r["x"][f] for f in TIMING_FEATURES] for r in train])
-    Xrt = np.array([[r["x"][f] for f in TIMING_FEATURES] for r in test])
-    reg = make_pipeline(StandardScaler(), Ridge(alpha=5.0))
-    reg.fit(Xr, np.array([r["y_first_frac"] for r in train]))
-    for o, v in zip(out, reg.predict(Xrt)):
-        o["first_frac"] = float(np.clip(v, 0.08, 0.85))
+        for o, p in zip(out, _class_probs(_classifier(train, target, strength[target]), test)):
+            o[target] = p
+    for o, v in zip(out, _first_fracs(train, test, strength["alpha"])):
+        o["first_frac"] = v
     return out
+
+
+def round_scores(train: list[dict], test: list[dict]) -> dict:
+    """How well each regularisation strength predicts one round from the
+    rounds before it: summed log-loss of the two classifiers per C, summed
+    first-stop-fraction error of the timing model per alpha."""
+    out = {}
+    for target in ("y_stops", "y_start"):
+        for C in C_GRID:
+            probs = _class_probs(_classifier(train, target, C), test)
+            out[(target, C)] = float(-sum(np.log(max(p.get(r[target], 0.0), 1e-3)) for p, r in zip(probs, test)))
+    for a in ALPHA_GRID:
+        out[("alpha", a)] = float(sum(abs(f - r["y_first_frac"]) for f, r in zip(_first_fracs(train, test, a), test)))
+    return out
+
+
+def choose_strength(scores: list[dict]) -> dict:
+    """Regularisation for the next round from earlier rounds' round_scores.
+
+    Chosen walk-forward instead of by hand: with ~15 race-level features and a
+    dozen races, how far to trust them is itself something to learn. The 2026
+    rounds pick heavy shrinkage toward the field's habits (stop count C ~0.003-0.01,
+    first-stop alpha 125-625) and a light one for the starting tyre."""
+    if not scores:
+        return dict(DEFAULT_STRENGTH)
+    total = lambda key: sum(s[key] for s in scores)
+    return {"y_stops": min(C_GRID, key=lambda C: total(("y_stops", C))),
+            "y_start": min(C_GRID, key=lambda C: total(("y_start", C))),
+            "alpha": min(ALPHA_GRID, key=lambda a: total(("alpha", a)))}
 
 
 def likely_plan(row: dict, pred: dict, total_laps: int) -> Strategy | None:
@@ -165,6 +211,7 @@ def main(after_round=None) -> None:
     files = sorted(OUT_DIR.glob("r[0-9][0-9].json"))
     rounds = {int(f.stem[1:]): json.loads(f.read_text()) for f in files}
     rows = {r: build_rows(d) for r, d in rounds.items()}
+    scores: list[dict] = []  # round_scores of every round already raced, in order
     for rnd in sorted(rounds):
         data = rounds[rnd]
         train = [x for r in sorted(rows) if r < rnd for x in rows[r] if "y_stops" in x]
@@ -175,7 +222,10 @@ def main(after_round=None) -> None:
                 after_round(data)
                 (OUT_DIR / f"r{rnd:02d}.json").write_text(json.dumps(data))
             continue
-        preds = _fit_predict(train, test)
+        strength = choose_strength(scores)
+        preds = _fit_predict(train, test, strength)
+        if labelled := [x for x in test if "y_stops" in x]:
+            scores.append(round_scores(train, labelled))  # used from the next round on
         L = data["weekend"]["total_laps"]
         for row, p in zip(test, preds):
             plan = likely_plan(row, p, L)
@@ -187,6 +237,7 @@ def main(after_round=None) -> None:
                 "stop_probabilities": {str(k): v for k, v in p["y_stops"].items()},
                 "start_probabilities": p["y_start"],
                 "trained_on_rounds": n_rounds,
+                "regularisation": strength,
             }
         if data.get("metrics"):
             data["metrics"].update(_evaluate_likely(data))
@@ -194,7 +245,7 @@ def main(after_round=None) -> None:
             after_round(data)
         (OUT_DIR / f"r{rnd:02d}.json").write_text(json.dumps(data))
         m = data.get("metrics") or {}
-        print(f"R{rnd:02d} trained on {n_rounds} rounds | likely stops={m.get('likely_stops_accuracy')} set={m.get('likely_compound_set_accuracy')} "
+        print(f"R{rnd:02d} trained on {n_rounds} rounds, {strength} | likely stops={m.get('likely_stops_accuracy')} set={m.get('likely_compound_set_accuracy')} "
               f"start={m.get('likely_start_compound_accuracy')} mae={m.get('likely_first_stop_mae')}", flush=True)
     from src.pitwall.build_season import write_index
 
@@ -210,8 +261,8 @@ def _evaluate_likely(data: dict) -> dict:
             continue
         p, a = e["likely"], e["actual"]
         row = {"stops": p["stops"] == a["stops"], "set": set(p["sequence"]) == set(a["sequence"]), "start": p["sequence"][0] == a["sequence"][0]}
-        if p["pit_laps"] and a["pit_laps"]:
-            row["err"] = a["pit_laps"][0] - p["pit_laps"][0]
+        if p["pit_laps"] and first_stop(a):
+            row["err"] = first_stop(a) - p["pit_laps"][0]
         rows.append(row)
         r["likely_stops_match"], r["likely_set_match"], r["likely_start_match"] = row["stops"], row["set"], row["start"]
         if "err" in row:

@@ -145,28 +145,49 @@ def _periods(laps_list: list[int]) -> list[tuple[int, int]]:
 
 
 def stints_from_laps(laps: pd.DataFrame) -> pd.DataFrame:
-    """One row per driver stint: compound, first/last lap, tyre age at the start."""
+    """One row per driver stint: compound, first/last lap, tyre age at the start.
+
+    A trip down the pit lane that leaves the same set on the car (the field led
+    through the pit lane behind the Safety Car, a drive-through) starts a new
+    stint in the timing feed although no tyres were changed: tyre age runs on,
+    so those pieces are merged (Baku and Monaco 2026). `red_flag`: the set was
+    changed while the race was suspended, which F1 does not count as a pit stop.
+    """
+    cols = ["driver", "stint", "compound", "start_lap", "end_lap", "laps", "age_start", "fresh", "red_flag"]
     if laps.empty:
-        return pd.DataFrame(columns=["driver", "stint", "compound", "start_lap", "end_lap", "laps", "age_start", "fresh"])
+        return pd.DataFrame(columns=cols)
+    red = set(neutralised_laps(laps)["red"])
     rows = []
-    for (driver, stint), grp in laps.groupby(["driver", "stint"], sort=True):
-        grp = grp.sort_values("lap")
-        compound = grp["compound"].mode().iloc[0] if not grp["compound"].mode().empty else "UNKNOWN"
-        first = grp.iloc[0]
-        age_start = float(first["tyre_life"]) - 1 if pd.notna(first["tyre_life"]) else 0.0
-        rows.append(
-            {
+    for driver, dl in laps.groupby("driver", sort=True):
+        mine: list[dict] = []
+        for _, grp in dl.groupby("stint", sort=True):
+            grp = grp.sort_values("lap")
+            compound = grp["compound"].mode().iloc[0] if not grp["compound"].mode().empty else "UNKNOWN"
+            first = grp.iloc[0]
+            known = grp.dropna(subset=["tyre_life"])
+            seen = (int(known["lap"].iloc[-1]), float(known["tyre_life"].iloc[-1])) if len(known) else None  # (lap, tyre age) last seen
+            prev = mine[-1] if mine else None
+            if (prev and compound == prev["compound"] and prev["_seen"] and len(known)
+                    and float(known["tyre_life"].iloc[0]) == prev["_seen"][1] + known["lap"].iloc[0] - prev["_seen"][0]):
+                prev["end_lap"] = int(grp["lap"].max())
+                prev["laps"] = prev["end_lap"] - prev["start_lap"] + 1
+                prev["_seen"] = seen
+                continue
+            age_start = float(first["tyre_life"]) - 1 if pd.notna(first["tyre_life"]) else 0.0
+            mine.append({
                 "driver": driver,
-                "stint": int(stint),
+                "stint": len(mine) + 1,
                 "compound": compound,
                 "start_lap": int(grp["lap"].min()),
                 "end_lap": int(grp["lap"].max()),
                 "laps": int(grp["lap"].max() - grp["lap"].min() + 1),
                 "age_start": max(0.0, age_start),
                 "fresh": bool(first["fresh"]) if pd.notna(first["fresh"]) else True,
-            }
-        )
-    return pd.DataFrame(rows)
+                "red_flag": bool(mine) and bool({int(first["lap"]) - 1, int(first["lap"])} & red),
+                "_seen": seen,
+            })
+        rows += mine
+    return pd.DataFrame(rows, columns=cols + ["_seen"]).drop(columns="_seen")
 
 
 def driver_table(session) -> list[dict]:

@@ -1,57 +1,57 @@
 {
- "scope": "dry 2026 races from round 4 onward, classified finishers, walk-forward (no future data)",
- "driver_races": 210,
- "stops_accuracy": 0.4,
- "compound_set_accuracy": 0.3380952380952381,
- "start_compound_accuracy": 0.24761904761904763,
- "first_stop_mae": 8.49047619047619,
- "window_coverage": 0.49523809523809526,
- "conformal_coverage": 0.8095238095238095,
+ "scope": "dry 2026 races from round 4 onward, classified finishers on dry tyres, walk-forward (no future data)",
+ "driver_races": 205,
+ "stops_accuracy": 0.4975609756097561,
+ "compound_set_accuracy": 0.3463414634146341,
+ "start_compound_accuracy": 0.25365853658536586,
+ "first_stop_mae": 6.783505154639175,
+ "window_coverage": 0.5618556701030928,
+ "conformal_coverage": 0.8917525773195877,
  "conformal_target": 0.8,
  "baseline": {
   "description": "most common strategy of earlier dry 2026 races, median first-stop fraction",
-  "stops_accuracy": 0.34285714285714286,
-  "compound_set_accuracy": 0.3333333333333333,
-  "start_compound_accuracy": 0.5857142857142857,
-  "first_stop_mae": 9.880952380952381
+  "stops_accuracy": 0.44390243902439025,
+  "compound_set_accuracy": 0.34146341463414637,
+  "start_compound_accuracy": 0.6,
+  "first_stop_mae": 9.005154639175258
  },
  "racesim": {
   "description": "full-field race simulation (traffic, overtaking, SC/VSC); each driver's plan chosen by expected finishing position",
-  "driver_races": 210,
-  "stops_accuracy": 0.5190476190476191,
-  "compound_set_accuracy": 0.3380952380952381,
-  "start_compound_accuracy": 0.5142857142857142,
-  "first_stop_mae": 9.076190476190476,
-  "uses_hard": 0.5571428571428572,
+  "driver_races": 205,
+  "stops_accuracy": 0.5365853658536586,
+  "compound_set_accuracy": 0.34146341463414637,
+  "start_compound_accuracy": 0.5609756097560976,
+  "first_stop_mae": 7.149484536082475,
+  "uses_hard": 0.5365853658536586,
   "physics_on_same_rows": {
-   "stops_accuracy": 0.4,
-   "compound_set_accuracy": 0.3380952380952381,
-   "start_compound_accuracy": 0.24761904761904763,
-   "first_stop_mae": 8.49047619047619,
-   "uses_hard": 0.7285714285714285
+   "stops_accuracy": 0.4975609756097561,
+   "compound_set_accuracy": 0.3463414634146341,
+   "start_compound_accuracy": 0.25365853658536586,
+   "first_stop_mae": 6.783505154639175,
+   "uses_hard": 0.7219512195121951
   },
-  "actual_uses_hard": 0.6904761904761905,
-  "finishing_order_rho": 0.8527453318430415,
+  "actual_uses_hard": 0.7073170731707317,
+  "finishing_order_rho": 0.8552951004963387,
   "grid_order_rho": 0.8095459236326108
  },
  "hybrid": {
   "description": "physics optimiser + walk-forward behaviour classifier (logistic regression on physics features)",
-  "driver_races": 210,
-  "stops_accuracy": 0.44285714285714284,
-  "compound_set_accuracy": 0.3476190476190476,
-  "start_compound_accuracy": 0.5666666666666667,
-  "first_stop_mae": 10.947619047619048,
+  "driver_races": 205,
+  "stops_accuracy": 0.3463414634146341,
+  "compound_set_accuracy": 0.4,
+  "start_compound_accuracy": 0.5560975609756098,
+  "first_stop_mae": 9.06701030927835,
   "physics_on_same_rows": {
-   "stops_accuracy": 0.4,
-   "compound_set_accuracy": 0.3380952380952381,
-   "start_compound_accuracy": 0.24761904761904763,
-   "first_stop_mae": 8.49047619047619
+   "stops_accuracy": 0.4975609756097561,
+   "compound_set_accuracy": 0.3463414634146341,
+   "start_compound_accuracy": 0.25365853658536586,
+   "first_stop_mae": 6.783505154639175
   },
   "baseline_on_same_rows": {
-   "stops_accuracy": 0.34285714285714286,
-   "compound_set_accuracy": 0.3333333333333333,
-   "start_compound_accuracy": 0.5857142857142857,
-   "first_stop_mae": 9.880952380952381
+   "stops_accuracy": 0.44390243902439025,
+   "compound_set_accuracy": 0.34146341463414637,
+   "start_compound_accuracy": 0.6,
+   "first_stop_mae": 9.005154639175258
   }
  }
 }

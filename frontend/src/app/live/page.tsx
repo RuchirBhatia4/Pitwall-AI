@@ -596,7 +596,16 @@ export default function LivePage() {
 
       {source === "manual" && manual && <AnalysisView a={manual} state={null} onSelect={() => undefined} />}
 
-      {source !== "manual" && state && (
+      {source !== "manual" && state?.session?.waiting && (
+        <Section title="Waiting for the race feed">
+          <p className="text-sm text-text-2">
+            F1 live timing is still showing {state.session.name ?? "the previous session"}. The race feed usually opens about an hour
+            before lights out, and this page switches over on its own.
+          </p>
+        </Section>
+      )}
+
+      {source !== "manual" && state && !state.session?.waiting && (
         <>
           <Section title="Strategise for">
             <DriverPicker

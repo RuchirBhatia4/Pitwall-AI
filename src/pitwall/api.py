@@ -123,11 +123,41 @@ def _slim(state: dict) -> dict:
     return state | {"cars": [{k: v for k, v in c.items() if k != "laps"} for c in state["cars"]]}
 
 
+# analyse() takes ~0.3 s of CPU, and every visitor polls every few seconds, so
+# visitors following the same driver share one result until that car's lap,
+# tyres or the track status change (or it is ANALYSIS_MAX_AGE_S old).
+ANALYSIS_MAX_AGE_S = 45.0
+_analyses: dict[tuple, tuple[float, dict]] = {}
+_analysis_locks: dict[tuple, threading.Lock] = {}
+_analyses_lock = threading.Lock()
+
+
+def shared_analysis(state: dict, driver: str) -> dict:
+    car = next((c for c in state["cars"] if c["driver"] == driver), None)
+    key = (state.get("source"), state["round"], driver, state["track_status"]) + (
+        (car["laps_completed"], car["compound"], car["stops"], car["in_pit"], car["retired"]) if car else ())
+    with _analyses_lock:
+        lock = _analysis_locks.setdefault(key, threading.Lock())
+    with lock:  # one computation per key; other visitors wait for it
+        hit = _analyses.get(key)
+        if hit and time.time() - hit[0] < ANALYSIS_MAX_AGE_S:
+            return hit[1]
+        out = analyse(state, weekend_for(state["round"]), driver)
+        with _analyses_lock:
+            now = time.time()
+            for k, (t, _) in list(_analyses.items()):
+                if now - t > ANALYSIS_MAX_AGE_S:
+                    del _analyses[k]
+                    _analysis_locks.pop(k, None)
+            _analyses[key] = (now, out)
+        return out
+
+
 @router.get("/replay/{rnd}")
 def replay(rnd: int, lap: int, driver: str) -> dict:
     src = _replay(rnd)
     state = src.state(lap)
-    return {"state": _slim(state), "analysis": analyse(state, weekend_for(rnd), driver.upper())}
+    return {"state": _slim(state), "analysis": shared_analysis(state, driver.upper())}
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +363,7 @@ def live_state(driver: str | None = None, x_pitwall_session: str | None = Header
     state = LIVE.state(sid)
     out = {"state": _slim(state), "status": LIVE.status(sid)}
     if driver:
-        out["analysis"] = analyse(state, weekend_for(state["round"]), driver.upper())
+        out["analysis"] = shared_analysis(state, driver.upper())
     return out
 
 

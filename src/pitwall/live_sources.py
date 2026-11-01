@@ -41,6 +41,7 @@ from src.pitwall.weekend import YEAR, event_row
 
 log = logging.getLogger("pitwall.live")
 STATUS_MAP = {"1": "GREEN", "2": "YELLOW", "4": "SC", "5": "RED", "6": "VSC", "7": "VSC_ENDING"}
+WAITING_RESUBSCRIBE_S = 300  # while F1 live timing still shows an earlier session, resubscribe this often
 
 
 def _now() -> str:
@@ -502,7 +503,14 @@ class TimingReducer:
         self.lap_history: dict[str, list[dict]] = {}
         self.neutral_laps: set[int] = set()
         self.rain_laps: set[int] = set()
+        self.session_changed = False
         self.lock = threading.Lock()
+
+    def waiting(self) -> bool:
+        """True while the feed carries a session other than the race (e.g. the
+        qualifying that stays on air until the race session opens)."""
+        si = self.data.get("SessionInfo") or {}
+        return si.get("Type") not in (None, "Race") or si.get("Name") == "Sprint"
 
     def apply(self, topic: str, payload: Any) -> None:
         if topic.endswith(".z") and isinstance(payload, str):
@@ -513,6 +521,17 @@ class TimingReducer:
             except json.JSONDecodeError:
                 return
         with self.lock:
+            if topic == "SessionInfo" and isinstance(payload, dict):
+                old = self.data.get("SessionInfo") or {}
+                id_key = "Key" if payload.get("Key") and old.get("Key") else "Path"
+                if payload.get(id_key) and old.get(id_key) and payload[id_key] != old[id_key]:
+                    # A new session is on air: drop the previous one's timing (its
+                    # stints, pit stops and laps) and resubscribe for a full snapshot.
+                    self.data.clear()
+                    self.lap_history.clear()
+                    self.neutral_laps.clear()
+                    self.rain_laps.clear()
+                    self.session_changed = True
             if topic == "TimingData" and isinstance(payload, dict):
                 self._record_laps(payload)
             if topic == "RaceControlMessages" and isinstance(payload, dict):
@@ -632,10 +651,15 @@ class TimingReducer:
                     "laps": list(self.lap_history.get(num, [])),
                 })
             msgs = (self.data.get("RaceControlMessages", {}) or {}).get("Messages", [])
+            si = self.data.get("SessionInfo") or {}
+            session = {"name": si.get("Name"), "type": si.get("Type"), "status": (self.data.get("SessionStatus") or {}).get("Status"),
+                       "waiting": self.waiting()}
         ev = event_row(rnd)
         lap = int(lc.get("CurrentLap") or 0)
         total = int(lc.get("TotalLaps") or 0) or total_laps
         cars = _rank_cars(cars)
+        if session["waiting"]:  # never show another session's cars as the race
+            cars, msgs, lap = [], [], 0
         return {
             "source": "signalr",
             "round": rnd,
@@ -649,6 +673,7 @@ class TimingReducer:
             "cars": cars,
             "race_control": [{"lap": m.get("Lap"), "category": m.get("Category"), "message": m.get("Message"), "flag": m.get("Flag")} for m in msgs[-12:][::-1]],
             "weather": self._weather(),
+            "session": session,
         }
 
 
@@ -751,8 +776,14 @@ class SignalRSource:
                     client._run()
                     self.error = None
                     backoff = 2.0
+                    t_open = time.time()
                     while client._is_connected and not self._stop.is_set():
                         time.sleep(1.0)
+                        if self.reducer.session_changed:
+                            self.reducer.session_changed = False
+                            break
+                        if self.reducer.waiting() and time.time() - t_open > WAITING_RESUBSCRIBE_S:
+                            break  # still on the previous session: resubscribe in case the switch was missed
                 except Exception as exc:
                     self.error = f"{type(exc).__name__}: {exc} (retrying)"
                     log.warning("live timing connection failed: %s", exc)

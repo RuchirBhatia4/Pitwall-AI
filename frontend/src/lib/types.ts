@@ -332,6 +332,8 @@ export interface RaceState {
   cars: CarState[];
   race_control: { lap: number | null; category: string; message: string; flag: string | null }[];
   weather: { track_temp?: number | null; air_temp?: number | null; rainfall?: number | boolean; rain_laps?: number[] };
+  /** F1 live timing only: the session on air; `waiting` while it is not yet the race. */
+  session?: { name: string | null; type: string | null; status: string | null; waiting: boolean };
 }
 
 export interface Analysis {

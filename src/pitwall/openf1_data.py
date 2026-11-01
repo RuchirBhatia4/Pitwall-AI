@@ -36,10 +36,10 @@ class OpenF1Unavailable(RuntimeError):
     pass
 
 
-def _get(endpoint: str, **params) -> list[dict]:
+def _get(endpoint: str, refresh: bool = False, **params) -> list[dict]:
     key = endpoint + "_" + "_".join(f"{k}-{v}" for k, v in sorted(params.items()))
     path = CACHE_DIR / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', key)}.json"
-    if path.exists():
+    if path.exists() and not refresh:
         return json.loads(path.read_text())
     for attempt in range(6):
         r = requests.get(f"{BASE}/{endpoint}", params=params, timeout=60)
@@ -109,6 +109,10 @@ class OpenF1Session:
         k = self.session_key
         drivers = pd.DataFrame(_get("drivers", session_key=k))
         laps = pd.DataFrame(_get("laps", session_key=k))
+        if not laps.empty and (drivers.empty or not set(laps["driver_number"]) <= set(drivers["driver_number"])):
+            # OpenF1 lists the expected line-up before a session, so a driver list
+            # cached early misses late changes (a stand-in driver): refetch it.
+            drivers = pd.DataFrame(_get("drivers", refresh=True, session_key=k))
         if drivers.empty or laps.empty:
             raise OpenF1Unavailable(f"OpenF1 has no lap data for session {k} yet")
         drivers = drivers.drop_duplicates("driver_number", keep="last").set_index("driver_number")

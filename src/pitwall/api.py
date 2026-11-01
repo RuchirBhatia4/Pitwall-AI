@@ -15,6 +15,7 @@ import pandas as pd
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from src.pitwall.forecast import rain_forecast
 from src.pitwall.live_engine import analyse
 from src.pitwall.optimizer import Optimizer, RaceContext, TyreState
 from src.pitwall.season import SEASON_DIR
@@ -362,6 +363,8 @@ def live_state(driver: str | None = None, x_pitwall_session: str | None = Header
     sid = session_id(x_pitwall_session)
     state = LIVE.state(sid)
     out = {"state": _slim(state), "status": LIVE.status(sid)}
+    if state.get("source") in ("signalr", "openf1") and not (state.get("session") or {}).get("waiting"):
+        out["forecast"] = rain_forecast(state.get("location"))
     if driver:
         out["analysis"] = shared_analysis(state, driver.upper())
     return out

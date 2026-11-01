@@ -5,7 +5,7 @@ import clsx from "clsx";
 import { AlertTriangle, ArrowDownRight, ArrowUpRight, CircleSlash, Flag, Gauge, Plug, Radio, RefreshCcw, ShieldAlert, Wifi, WifiOff } from "lucide-react";
 import { api, pct, secs, useApi, usePoll } from "@/lib/api";
 import { SimTable } from "@/components/RaceSim";
-import type { Analysis, LiveStatus, RaceFile, RaceState, Season } from "@/lib/types";
+import type { Analysis, LiveStatus, RaceFile, RaceState, RainForecast, Season } from "@/lib/types";
 import { DriverPicker } from "@/components/DriverPicker";
 import { Section } from "@/components/Stat";
 import { StintTimeline, type TimelineRow } from "@/components/StintTimeline";
@@ -55,6 +55,16 @@ function CallCard({ a }: { a: Analysis }) {
       </div>
       <div className={clsx("mt-2 text-3xl sm:text-4xl font-bold tracking-tight", c.action === "BOX_NOW" && "text-alert")}>{c.headline}</div>
       {c.reason && <div className="mt-2 text-sm text-text-2 max-w-2xl">{c.reason}</div>}
+      {(a.held_up || a.track?.note) && (
+        <div className="mt-2 space-y-0.5 text-xs text-text-2 max-w-2xl">
+          {a.held_up && (
+            <div>
+              {a.held_up.gap.toFixed(1)}s behind {a.held_up.driver}: lap times include dirty air, so a slow lap here is not all tyre wear.
+            </div>
+          )}
+          {a.track?.note && <div>{a.track.note}.</div>}
+        </div>
+      )}
       {cond?.changing && (
         <div className="mt-3 inline-flex flex-wrap items-center gap-2 rounded-lg border border-line px-2.5 py-1 text-xs text-text-2">
           <span aria-hidden>🌧</span>
@@ -87,6 +97,29 @@ function CallCard({ a }: { a: Analysis }) {
           <div className="tabular font-semibold">{c.box_now_cost != null ? secs(c.box_now_cost, 1, true) : c.action === "BOX_NOW" ? "this is the call" : "—"}</div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function Conditions({ state, forecast }: { state: RaceState; forecast: RainForecast | null }) {
+  const w = state.weather ?? {};
+  const change = w.track_temp != null && w.track_temp_start != null ? w.track_temp - w.track_temp_start : null;
+  const wet = forecast && Math.max(forecast.next_hour, forecast.hour_after) >= 40;
+  if (w.track_temp == null && !forecast) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-3 tabular">
+      {w.track_temp != null && (
+        <span>
+          Track {w.track_temp.toFixed(0)}°C{change != null && Math.abs(change) >= 1 ? ` (${change > 0 ? "+" : ""}${change.toFixed(0)}° since the start)` : ""}
+        </span>
+      )}
+      {w.air_temp != null && <span>Air {w.air_temp.toFixed(0)}°C</span>}
+      {forecast && (
+        <span className={clsx(wet && "rounded bg-info/15 px-1.5 py-0.5 text-info")} title={`${forecast.source} forecast for the circuit`}>
+          Rain chance: {forecast.next_hour}% next hour, {forecast.hour_after}% the hour after
+          {wet ? " · watch before committing to a slick stop" : ""}
+        </span>
+      )}
     </div>
   );
 }
@@ -182,6 +215,15 @@ function RaceCraft({ a }: { a: Analysis }) {
           <div className="mt-1 text-xs text-text-2 tabular">
             gap {t.gap != null ? `${t.gap.toFixed(1)}s` : "—"} · fresh-tyre gain over 2 laps ≈ {t.gain.toFixed(1)}s
           </div>
+          {t.covered_gain != null && (
+            <div className="mt-0.5 text-xs text-text-2 tabular">
+              {t.type === "undercut_threat" ? `if ${a.driver} covers the next lap: ` : `if ${t.driver} covers the next lap: `}
+              gain ≈ {t.covered_gain.toFixed(1)}s ·{" "}
+              {t.type === "undercut_threat"
+                ? t.live_if_covered ? "covering is not enough" : "covering stops it"
+                : t.live_if_covered ? "still works" : "a cover stops it"}
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -200,6 +242,9 @@ function ModelPanel({ a }: { a: Analysis }) {
           <div>
             <div className="font-semibold">{a.drift.message}</div>
             <div className="text-xs text-text-3 tabular">drift z = {a.drift.z} (last 3 laps vs model, alert at |z| &gt; 2.5)</div>
+            {a.drift.notes?.map((n) => (
+              <div key={n} className="mt-1 text-xs text-text-2">{n}</div>
+            ))}
           </div>
         </div>
       )}
@@ -455,7 +500,7 @@ export default function LivePage() {
   const connected = !!status?.connected && source !== "manual";
   const [firstCar, setFirstCar] = useState<string | null>(null);
   const driver = driverChoice ?? firstCar;
-  const live = usePoll<{ state: RaceState; analysis?: Analysis; status: LiveStatus }>(
+  const live = usePoll<{ state: RaceState; analysis?: Analysis; status: LiveStatus; forecast?: RainForecast | null }>(
     connected ? `/api/live/state${driver ? `?driver=${driver}` : ""}` : null,
     4000,
     connected,
@@ -503,6 +548,7 @@ export default function LivePage() {
           <p className="text-text-2 mt-1">
             {state ? `${state.location} · lap ${state.lap}${state.total_laps ? ` / ${state.total_laps}` : ""}` : "Pick a data source, connect, then choose the driver to strategise for."}
           </p>
+          {state && !state.session?.waiting && <Conditions state={state} forecast={live.data?.forecast ?? null} />}
         </div>
         {state && (
           <div className="flex items-center gap-3">

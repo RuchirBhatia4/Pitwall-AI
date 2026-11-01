@@ -62,3 +62,58 @@ def test_free_stop_flag(austin):
     st, car = _state(src, 30)
     rj = analyse(st, w, car["driver"], sims=40)["rejoin"]
     assert rj["free"] == (rj["position"] <= car["position"])
+
+
+def test_hards_warm_up_slower_than_mediums(austin):
+    from src.pitwall.live_engine import OUTLAP_WARMUP
+    assert OUTLAP_WARMUP["HARD"] > OUTLAP_WARMUP["MEDIUM"] == OUTLAP_WARMUP["SOFT"]
+
+
+def test_threats_say_what_a_cover_leaves(austin):
+    src, w = austin
+    st, car = _state(src, 12)
+    for t in analyse(st, w, car["driver"], sims=40)["threats"]:
+        assert "covered_gain" in t and isinstance(t["live_if_covered"], bool)
+        # a cover can only take gain away, never make an undercut work that would not
+        if t["live_if_covered"]:
+            assert t["gap"] is not None and t["covered_gain"] > t["gap"]
+
+
+def test_held_up_names_the_car_ahead(austin):
+    src, w = austin
+    st, car = _state(src, 30)
+    car["interval"] = 0.6
+    car["in_pit"] = False
+    a = analyse(st, w, car["driver"], sims=40)
+    ahead = next(c for c in st["cars"] if c["position"] == 4)
+    assert a["held_up"] == {"driver": ahead["driver"], "gap": 0.6}
+
+
+def test_graining_shape():
+    import numpy as np
+    from src.pitwall.live_engine import _graining_cleared
+    ages = np.arange(1, 11)
+    assert _graining_cleared(np.array([0, 0.1, 0.9, 1.0, 1.1, 0.8, 0.2, 0.1, 0.0, 0.1]), ages, 0.6)
+    assert not _graining_cleared(np.array([0, 0.1, 0.9, 0.1, 0.0, 0.8, 0.2, 0.1, 0.0, 0.1]), ages, 0.6)  # one-off slow laps
+    assert not _graining_cleared(np.array([0, 0.1, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6]), ages, 0.6)  # wear, not graining
+
+
+def test_track_temperature_note():
+    from src.pitwall.live_engine import track_temperature
+    assert track_temperature({"track_temp": 50.0, "track_temp_start": 44.0})["note"].startswith("Track +6°C")
+    assert track_temperature({"track_temp": 46.0, "track_temp_start": 44.0})["note"] is None
+    assert track_temperature({}) is None
+
+
+def test_rain_forecast(monkeypatch):
+    from src.pitwall import forecast
+    forecast._cache.clear()
+    monkeypatch.setattr(forecast, "_fetch", lambda lat, lon: {"next_hour": 10, "hour_after": 60, "mm_2h": 1.2, "from": "x", "source": "Open-Meteo"})
+    assert forecast.rain_forecast("Mexico City")["hour_after"] == 60
+    assert forecast.rain_forecast("Nowhere") is None
+
+    def boom(lat, lon):
+        raise OSError("offline")
+    forecast._cache.clear()
+    monkeypatch.setattr(forecast, "_fetch", boom)
+    assert forecast.rain_forecast("Mexico City") is None  # never takes the live page down

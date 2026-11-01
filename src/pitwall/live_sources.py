@@ -246,6 +246,7 @@ class ReplaySource:
             return {}
         w = prior.iloc[-1]
         return {"rainfall": bool(w["Rainfall"]), "track_temp": float(w["TrackTemp"]), "air_temp": float(w["AirTemp"]),
+                "track_temp_start": float(prior.iloc[0]["TrackTemp"]),
                 "rain_laps": sorted(l for l in self.rain_laps if l <= lap)}
 
 
@@ -464,7 +465,8 @@ def build_openf1_state(rnd, drivers, laps, stints, pits, rc, intervals, weather,
             {"lap": m.get("lap_number"), "category": m.get("category"), "message": m.get("message"), "flag": m.get("flag")}
             for m in sorted(rc, key=lambda m: m.get("date") or "", reverse=True)[:12]
         ],
-        "weather": {"track_temp": wx.get("track_temperature"), "air_temp": wx.get("air_temperature"), "rainfall": wx.get("rainfall")},
+        "weather": {"track_temp": wx.get("track_temperature"), "air_temp": wx.get("air_temperature"), "rainfall": wx.get("rainfall"),
+                    "track_temp_start": weather[0].get("track_temperature") if weather else None},
     }
 
 
@@ -522,6 +524,7 @@ class TimingReducer:
         self.lap_history: dict[str, list[dict]] = {}
         self.neutral_laps: set[int] = set()
         self.rain_laps: set[int] = set()
+        self.track_temp_start: float | None = None
         self.session_changed = False
         self.lock = threading.Lock()
 
@@ -550,6 +553,7 @@ class TimingReducer:
                     self.lap_history.clear()
                     self.neutral_laps.clear()
                     self.rain_laps.clear()
+                    self.track_temp_start = None
                     self.session_changed = True
             if topic == "TimingData" and isinstance(payload, dict):
                 self._record_laps(payload)
@@ -624,8 +628,10 @@ class TimingReducer:
         w = self.data.get("WeatherData") or {}
         if not w and not self.rain_laps:
             return {}
+        if self.track_temp_start is None:
+            self.track_temp_start = _num(w.get("TrackTemp"))
         return {"rainfall": _truthy(w.get("Rainfall")), "track_temp": _num(w.get("TrackTemp")), "air_temp": _num(w.get("AirTemp")),
-                "rain_laps": sorted(self.rain_laps)}
+                "track_temp_start": self.track_temp_start, "rain_laps": sorted(self.rain_laps)}
 
     def state(self, rnd: int, total_laps: int | None) -> dict:
         with self.lock:

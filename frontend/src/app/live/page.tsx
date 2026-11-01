@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import clsx from "clsx";
-import { AlertTriangle, ArrowDownRight, ArrowUpRight, CircleSlash, Flag, Gauge, Plug, Radio, RefreshCcw, ShieldAlert, Swords, Wifi, WifiOff } from "lucide-react";
+import { AlertTriangle, ArrowDownRight, ArrowUpRight, CircleSlash, Flag, Gauge, Plug, Radio, RefreshCcw, ShieldAlert, Wifi, WifiOff } from "lucide-react";
 import { api, pct, secs, useApi, usePoll } from "@/lib/api";
 import { SimTable } from "@/components/RaceSim";
 import type { Analysis, LiveStatus, RaceFile, RaceState, Season } from "@/lib/types";
@@ -174,17 +174,6 @@ function RaceCraft({ a }: { a: Analysis }) {
           <div className="mt-1 text-xs text-text-2 tabular">
             gap {t.gap != null ? `${t.gap.toFixed(1)}s` : "—"} · fresh-tyre gain over 2 laps ≈ {t.gain.toFixed(1)}s
           </div>
-          {t.note && <div className="mt-1 text-xs text-warn">{t.note}</div>}
-        </div>
-      ))}
-      {a.battle?.map((b) => (
-        <div key={`${b.type}-${b.driver}`} className={clsx("rounded-lg p-3", b.on ? "bg-good/10 border border-good/40" : "bg-surface-2")}>
-          <div className="flex items-center gap-1.5 font-semibold">
-            <Swords size={15} />
-            {b.type === "cover" ? `Cover ${b.driver}` : `Overcut ${b.driver}`}
-            <span className={clsx("ml-auto text-xs", b.on ? "text-good" : "text-text-3")}>{b.on ? "ON" : "not on"}</span>
-          </div>
-          <div className="mt-1 text-xs text-text-2">{b.text}</div>
         </div>
       ))}
     </div>

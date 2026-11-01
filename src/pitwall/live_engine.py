@@ -65,10 +65,6 @@ CROSSOVER_MARGIN = 2.0  # s of net gain required before switching tyre type
 # not a wet-track sign; real rain shows up in tyres, lap times and the weather.
 RC_WET = re.compile(r"\b(WET|RAIN(?:ING)?|INTERMEDIATE)\b")
 OUTLAP_WARMUP = 0.8  # s lost on the out-lap while new tyres come in (undercut maths)
-BATTLE_GAP_S = 2.0  # cars this close are racing each other
-CLEAR_AIR_S = 1.5  # rejoining closer than this behind a car means dirty air
-COVER_MARGIN_S = 0.5  # a cover has to bring the car out at least this far ahead
-NEAR_STOP_LAPS = 6  # undercut / overcut advice only this close to the planned stop
 BAND_Z = 1.2816  # 80% central interval
 LIVE_SIMS = 80  # full-field race simulations per live update
 LIVE_PACE_PRIOR_LAPS = 8.0  # clean laps before a car's live pace outweighs its pre-race estimate
@@ -160,78 +156,6 @@ def _undercut_gain(model: TyreModel, team: str | None, old_c: str, old_age: int,
     old = model.lap_delta(old_c, np.arange(old_age + 1, old_age + laps + 1), team, driver).sum()
     new = model.lap_delta(new_c, np.arange(1, laps + 1), team, driver).sum()
     return float(old - new - OUTLAP_WARMUP)
-
-
-def _car_ahead_on_road(running: list[dict], gap: float, skip: set[str]) -> tuple[dict | None, float | None]:
-    """The car just ahead of a car at `gap` to the leader, and how far ahead it is."""
-    ahead = [c for c in running if c["driver"] not in skip and c.get("gap_to_leader") is not None and c["gap_to_leader"] < gap]
-    if not ahead:
-        return None, None
-    a = max(ahead, key=lambda c: c["gap_to_leader"])
-    return a, gap - a["gap_to_leader"]
-
-
-def _cost_text(cost: float) -> str:
-    return "no slower than your plan overall" if cost < 0.5 else f"~{cost:.1f}s of race time against your plan"
-
-
-def _sc_option(hazard: float, laps: int = 10) -> str:
-    """Overcut bonus: a later stop can still fall under a Safety Car / VSC."""
-    p = 1 - (1 - hazard) ** laps
-    return f"; staying out also keeps a ~{p:.0%} chance of a cheaper stop under a Safety Car or VSC in the next {laps} laps" if p >= 0.05 else ""
-
-
-def battle_reads(car: dict, running: list[dict], model: TyreModel, stop_cost: float, sc_hazard: float = 0.0,
-                 laps_to_stop: int | None = None, stop_now_cost: float | None = 0.0) -> list[dict]:
-    """Cover / overcut reads against a car this one was racing that has just
-    pitted, and an overcut chance on the car ahead if it stops first into
-    traffic. Advisory only: the pit call comes from the plan."""
-    me, me_gap = car["driver"], car.get("gap_to_leader")
-    if me_gap is None or car.get("in_pit", False) or car["compound"] not in model.compounds:
-        return []
-    reads = []
-    for r in running:
-        if (r["driver"] == me or r.get("gap_to_leader") is None or r.get("in_pit", False) or r["compound"] not in model.compounds
-                or r.get("stops", 0) != car.get("stops", 0) + 1 or r.get("tyre_age", 99) > 3):
-            continue
-        before = r["gap_to_leader"] - stop_cost  # roughly where it ran before its stop
-        if abs(before - me_gap) > BATTLE_GAP_S + 1.0:
-            continue
-        # my in-lap on old tyres against its lap on new ones
-        g1 = float(model.lap_delta(car["compound"], np.array([car["tyre_age"] + 1]), car.get("team"), me)[0]
-                   - model.lap_delta(r["compound"], np.array([r["tyre_age"] + 1]), r.get("team"), r["driver"])[0])
-        margin = round((r["gap_to_leader"] - g1) - (me_gap + stop_cost), 1)
-        blocker, blk = _car_ahead_on_road(running, r["gap_to_leader"], {r["driver"], me})
-        stuck = blocker is not None and blk < CLEAR_AIR_S
-        was = "ahead" if before < me_gap else "behind"
-        if margin >= COVER_MARGIN_S and stop_now_cost is None:
-            reads.append({"type": "cover", "driver": r["driver"], "on": False, "margin": margin,
-                          "text": f"{r['driver']} pitted from {was}: boxing now would keep you ~{margin:.1f}s ahead, "
-                                  "but it would need an extra stop later to reach the flag, so hold your plan"})
-        elif margin >= COVER_MARGIN_S:
-            text = (f"{r['driver']} pitted from {was}: box now and you rejoin ~{margin:.1f}s ahead of them"
-                    + (" (cover)" if was == "behind" else " (overcut works)")
-                    + f"; same number of stops, {_cost_text(stop_now_cost)}")
-            reads.append({"type": "cover", "driver": r["driver"], "on": True, "margin": margin, "text": text})
-        elif stuck:
-            reads.append({"type": "overcut", "driver": r["driver"], "on": True, "margin": margin,
-                          "text": f"{r['driver']} pitted and is stuck {blk:.1f}s behind {blocker['driver']}: stay out and push for the overcut "
-                                  f"(boxing now puts you ~{-margin:.1f}s behind them){_sc_option(sc_hazard)}"})
-        else:
-            reads.append({"type": "cover", "driver": r["driver"], "on": False, "margin": margin,
-                          "text": f"{r['driver']} pitted from {was} and is in clear air: boxing now puts you ~{-margin:.1f}s behind them, "
-                                  "so only extend if your tyres are holding"})
-    if not reads and laps_to_stop is not None and laps_to_stop <= NEAR_STOP_LAPS:
-        idx = next((i for i, c in enumerate(running) if c["driver"] == me), None)
-        a = running[idx - 1] if idx else None
-        if (a is not None and a.get("gap_to_leader") is not None and car.get("interval") is not None and car["interval"] <= BATTLE_GAP_S
-                and a.get("stops", 0) == car.get("stops", 0) and not a.get("in_pit", False)):
-            blocker, blk = _car_ahead_on_road(running, a["gap_to_leader"] + stop_cost, {a["driver"], me})
-            if blocker is not None and blk < CLEAR_AIR_S:
-                reads.append({"type": "overcut", "driver": a["driver"], "on": True, "margin": None,
-                              "text": f"If {a['driver']} boxes first they rejoin {blk:.1f}s behind {blocker['driver']} in traffic: "
-                                      f"stay out and overcut rather than following them in{_sc_option(sc_hazard)}"})
-    return reads
 
 
 def _ran_wets(car: dict) -> bool:
@@ -516,24 +440,12 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
         forced = opt.best_with_first_stop(tstate, cur_lap)
         if forced is not None:
             box_now_cost = float(forced - best.total)
-    # Undercuts and covers must not cost an extra stop later: the fastest plan
-    # that stops this lap with no more stops than the optimum, and its cost.
-    stop_now_cost = None
-    if best.pit_laps and cur_lap < total:
-        if best.pit_laps[0] == cur_lap:
-            stop_now_cost = 0.0
-        else:
-            same = opt.best_with_first_stop(tstate, cur_lap, max_stops=len(best.pit_laps))
-            stop_now_cost = max(0.0, float(same - best.total)) if same is not None else None
 
     # 5. race-craft context
     running = [c for c in cars if not c["retired"]]
     me_gap = car.get("gap_to_leader")
     rejoin = None
     stop_cost = pit_now if pit_now is not None else pit_loss
-    sc_hazard = weekend.get("sc_rate", 0.01) + weekend.get("vsc_rate", 0.006)  # per lap
-    laps_to_stop = nxt - cur_lap if nxt is not None else None
-    near_stop = laps_to_stop is not None and laps_to_stop <= NEAR_STOP_LAPS
     if me_gap is not None:
         proj = me_gap + stop_cost
         ahead_after = [c for c in running if c["driver"] != driver and c.get("gap_to_leader") is not None and c["laps_completed"] >= k - 1 and c["gap_to_leader"] < proj]
@@ -557,38 +469,14 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
             b = running[idx + 1]
             gain = _undercut_gain(model, b.get("team"), b["compound"], b["tyre_age"], new_c, driver=b["driver"]) if b["compound"] in model.compounds else 0.0
             gap_b = b.get("interval")
-            on_pace = bool(gap_b is not None and gain > gap_b and b["stops"] <= car["stops"])
-            # A fresh-tyre gain is wasted if the stop drops the car into dirty air.
-            blk, blk_gap = _car_ahead_on_road(running, b["gap_to_leader"] + stop_cost, {b["driver"], driver}) if b.get("gap_to_leader") is not None else (None, None)
-            dirty = blk is not None and blk_gap < CLEAR_AIR_S
-            note = None
-            if on_pace and dirty and near_stop:
-                note = f"they'd rejoin {blk_gap:.1f}s behind {blk['driver']} in traffic: you can stay out (overcut){_sc_option(sc_hazard)}"
-            elif on_pace and near_stop:
-                note = "box first, or cover the lap after they stop"
-            threats.append({"type": "undercut_threat", "driver": b["driver"], "gap": gap_b, "gain": round(gain, 2), "live": on_pace and not dirty, "note": note})
+            threats.append({"type": "undercut_threat", "driver": b["driver"], "gap": gap_b, "gain": round(gain, 2),
+                            "live": bool(gap_b is not None and gain > gap_b and b["stops"] <= car["stops"])})
         if idx > 0:
             a = running[idx - 1]
             gain = _undercut_gain(model, team, car["compound"], car["tyre_age"], new_c, driver=driver) if car["compound"] in model.compounds else 0.0
             gap_a = car.get("interval")
-            on_pace = bool(gap_a is not None and gain > gap_a and a["stops"] <= car["stops"])
-            dirty = bool(rejoin and rejoin["traffic"])
-            net = gain - gap_a - stop_now_cost if on_pace and stop_now_cost is not None else None
-            live = on_pace and not dirty and net is not None and net > 0
-            note = None
-            if on_pace and dirty and near_stop:
-                note = f"but you'd rejoin {rejoin['ahead']['gap']:.1f}s behind {rejoin['ahead']['driver']} in traffic: wait for clear air"
-            elif on_pace and stop_now_cost is None:
-                note = "but stopping now would need an extra stop later to reach the flag: not worth it"
-            elif on_pace and net <= 0:
-                note = (f"but stopping now costs ~{stop_now_cost:.1f}s of race time against your plan, "
-                        f"more than the ~{gain - gap_a:.1f}s it gains on {a['driver']}")
-            elif live and near_stop:
-                note = (f"box now: ~{gain:.1f}s of fresh-tyre pace in clear air beats the {gap_a:.1f}s gap, so you should be ahead once {a['driver']} stops"
-                        + (" (and you're out of their dirty air)" if gap_a < 1.0 else "")
-                        + f"; same number of stops, {_cost_text(stop_now_cost)}")
-            threats.append({"type": "undercut_opportunity", "driver": a["driver"], "gap": gap_a, "gain": round(gain, 2), "live": live, "note": note})
-    battle = battle_reads(car, running, model, stop_cost, sc_hazard, laps_to_stop, stop_now_cost)
+            threats.append({"type": "undercut_opportunity", "driver": a["driver"], "gap": gap_a, "gain": round(gain, 2),
+                            "live": bool(gap_a is not None and gain > gap_a and a["stops"] <= car["stops"])})
 
     # rival predictions (cheap: deterministic, <=2 stops)
     rivals = []
@@ -665,7 +553,6 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
         },
         "rejoin": rejoin,
         "threats": threats,
-        "battle": battle,
         "rivals": sorted(rivals, key=lambda r: r["position"] or 99),
         "race_sim": race_sim,
         "tyre_curve": curve,

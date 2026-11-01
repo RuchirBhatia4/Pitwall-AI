@@ -395,9 +395,7 @@ export interface Analysis {
     behind: { driver: string; gap: number; compound: string; tyre_age: number } | null;
     traffic: boolean;
   } | null;
-  threats?: { type: "undercut_threat" | "undercut_opportunity"; driver: string; gap: number | null; gain: number; live: boolean; note?: string | null }[];
-  /** Cover / overcut reads against a rival (advisory; the call comes from the plan). */
-  battle?: { type: "cover" | "overcut"; driver: string; on: boolean; margin: number | null; text: string }[];
+  threats?: { type: "undercut_threat" | "undercut_opportunity"; driver: string; gap: number | null; gain: number; live: boolean }[];
   rivals?: { driver: string; position: number | null; compound: string; tyre_age: number; next_stop: number | null; next_compound: string | null; plan: string }[];
   race_sim?: { sims: number; position_now: number | null; options: SimOption[]; error?: undefined } | { error: string; options?: undefined } | null;
   tyre_curve?: { compound: string; ages: number[]; predicted: number[]; band: number; observed: { age: number; delta: number }[] } | null;

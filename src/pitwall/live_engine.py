@@ -65,6 +65,7 @@ CROSSOVER_MARGIN = 2.0  # s of net gain required before switching tyre type
 # not a wet-track sign; real rain shows up in tyres, lap times and the weather.
 RC_WET = re.compile(r"\b(WET|RAIN(?:ING)?|INTERMEDIATE)\b")
 OUTLAP_WARMUP = 0.8  # s lost on the out-lap while new tyres come in (undercut maths)
+STACK_SERVICE_S = 4.5  # s a teammate in the pit box ahead holds up a car that pits right behind it
 BAND_Z = 1.2816  # 80% central interval
 LIVE_SIMS = 80  # full-field race simulations per live update
 LIVE_PACE_PRIOR_LAPS = 8.0  # clean laps before a car's live pace outweighs its pre-race estimate
@@ -346,6 +347,17 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
     # 3. optimise from the current tyre state
     ts = state["track_status"]
     pit_now = pit_loss * SC_PIT_FACTOR if ts == "SC" else pit_loss * VSC_PIT_FACTOR if ts in ("VSC", "VSC_ENDING") else None
+    if ts == "RED":
+        pit_now = 0.0  # tyres may be changed for free while the race is suspended
+    # A teammate already in the pit lane just ahead: this car would queue behind it.
+    mate = next((c for c in cars if c is not car and team and c.get("team") == team and not c["retired"]), None)
+    stack_wait = 0.0
+    if mate and mate.get("in_pit") and mate.get("gap_to_leader") is not None and car.get("gap_to_leader") is not None:
+        behind_mate = car["gap_to_leader"] - mate["gap_to_leader"]
+        if 0 <= behind_mate < STACK_SERVICE_S:
+            stack_wait = STACK_SERVICE_S - behind_mate
+    if stack_wait and ts != "RED":
+        pit_now = (pit_now if pit_now is not None else pit_loss) + stack_wait
     compound = car["compound"] if car["compound"] in model.compounds else None
     used = tuple(c for c in car.get("compounds_used", []) if c in DRY_COMPOUNDS)
     tstate = TyreState(lap=k, compound=compound, age=int(car["tyre_age"]), used=used, pit_cost_now=pit_now)
@@ -400,6 +412,12 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
             action = "WINDOW_OPEN"
             headline = f"Pit window open — box by lap {hi} for {nxt_c.title()}s"
 
+    if ts == "RED":
+        if nxt is not None and nxt <= cur_lap:
+            action, headline = "BOX_NOW", f"Red flag: free tyre change — fit {nxt_c.title()}s for the restart"
+        else:
+            action, headline = "STAY_OUT", f"Red flag: keep the {car['compound'].title()}s for the restart"
+
     # 4b. conditions: wet tyres or a changing track override the dry maths
     reason = None
     xo = None
@@ -445,7 +463,8 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
     running = [c for c in cars if not c["retired"]]
     me_gap = car.get("gap_to_leader")
     rejoin = None
-    stop_cost = pit_now if pit_now is not None else pit_loss
+    penalty = float(car.get("penalty_s") or 0)  # a time penalty is served at the next stop
+    stop_cost = (pit_now if pit_now is not None else pit_loss) + penalty
     if me_gap is not None:
         proj = me_gap + stop_cost
         ahead_after = [c for c in running if c["driver"] != driver and c.get("gap_to_leader") is not None and c["laps_completed"] >= k - 1 and c["gap_to_leader"] < proj]
@@ -459,6 +478,9 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
             "ahead": car_ahead and {"driver": car_ahead["driver"], "gap": round(proj - car_ahead["gap_to_leader"], 1), "compound": car_ahead["compound"], "tyre_age": car_ahead["tyre_age"]},
             "behind": car_behind and {"driver": car_behind["driver"], "gap": round(car_behind["gap_to_leader"] - proj, 1), "compound": car_behind["compound"], "tyre_age": car_behind["tyre_age"]},
             "traffic": bool(car_ahead and proj - car_ahead["gap_to_leader"] < 1.5),
+            "free": bool(car.get("position") and pos <= car["position"]),  # no place lost
+            "penalty_s": penalty or None,
+            "stack_wait": round(stack_wait, 1) if stack_wait else None,
         }
 
     idx = next((i for i, c in enumerate(running) if c["driver"] == driver), None)

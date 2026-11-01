@@ -149,7 +149,15 @@ function RaceCraft({ a }: { a: Analysis }) {
           <div>
             Rejoins <span className="font-semibold">P{a.rejoin.position}</span> after a <span className="tabular">{a.rejoin.stop_cost}s</span> stop
             {a.rejoin.traffic && <span className="ml-2 rounded bg-warn/20 px-1.5 py-0.5 text-xs text-warn">traffic</span>}
+            {a.rejoin.free && <span className="ml-2 rounded bg-good/20 px-1.5 py-0.5 text-xs text-good">free stop: no place lost</span>}
           </div>
+          {(a.rejoin.penalty_s || a.rejoin.stack_wait) && (
+            <div className="mt-1 text-xs text-warn">
+              {a.rejoin.penalty_s ? `includes a ${a.rejoin.penalty_s}s time penalty served at the stop` : ""}
+              {a.rejoin.penalty_s && a.rejoin.stack_wait ? " · " : ""}
+              {a.rejoin.stack_wait ? `includes ~${a.rejoin.stack_wait}s queueing behind the teammate in the pit box` : ""}
+            </div>
+          )}
           <div className="mt-1 text-text-2 text-xs space-y-0.5">
             {a.rejoin.ahead && (
               <div>

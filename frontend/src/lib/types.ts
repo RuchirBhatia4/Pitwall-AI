@@ -394,6 +394,12 @@ export interface Analysis {
     ahead: { driver: string; gap: number; compound: string; tyre_age: number } | null;
     behind: { driver: string; gap: number; compound: string; tyre_age: number } | null;
     traffic: boolean;
+    /** Rejoins without losing a place. */
+    free?: boolean;
+    /** Time penalty served at this stop (s). */
+    penalty_s?: number | null;
+    /** Extra wait behind a teammate already in the pit box (s). */
+    stack_wait?: number | null;
   } | null;
   threats?: { type: "undercut_threat" | "undercut_opportunity"; driver: string; gap: number | null; gain: number; live: boolean }[];
   rivals?: { driver: string; position: number | null; compound: string; tyre_age: number; next_stop: number | null; next_compound: string | null; plan: string }[];

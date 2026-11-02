@@ -318,10 +318,13 @@ def chat_llm(messages: list[dict], context: dict) -> dict:
 # Engine mode (no LLM): intent parsing + templated answers
 # ---------------------------------------------------------------------------
 def _find_round(text: str, context: dict) -> int:
+    from src.pitwall.api import default_round
+
     s = _season()
+    current = default_round(s) or 16
     t = text.lower()
     if any(k in t for k in ("tonight", "today", "this race", "live", "sepang", "malaysia", "kuala lumpur", "bahrain")):
-        return s.get("live_round") or s.get("next_round") or 16
+        return current
     for r in s["rounds"]:
         keys = {r["location"].lower(), r["event"].lower().replace(" grand prix", ""), r["country"].lower()}
         if any(k and k in t for k in keys):
@@ -329,7 +332,7 @@ def _find_round(text: str, context: dict) -> int:
     m = re.search(r"\b(?:round|r)\s?(\d{1,2})\b", t)
     if m:
         return int(m.group(1))
-    return context.get("round") or s.get("live_round") or s.get("next_round") or 16
+    return context.get("round") or current
 
 
 def _with_grid(rnd: int) -> int:

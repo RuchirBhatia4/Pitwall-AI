@@ -144,6 +144,16 @@ def _periods(laps_list: list[int]) -> list[tuple[int, int]]:
     return periods
 
 
+def _changed_under_red(dl: pd.DataFrame, start_lap: int, red: set[int]) -> bool:
+    """The set was fitted during a suspension: the driver's own in-lap ran (partly)
+    under the red flag. A stop under the Safety Car just before the red flag is
+    a real stop although the next stint starts on a red-flag lap (Mexico 2026)."""
+    in_lap = dl[dl["lap"] == start_lap - 1]
+    if len(in_lap) and pd.notna(in_lap["track_status"].iloc[0]):
+        return STATUS_RED in str(in_lap["track_status"].iloc[0])
+    return bool({start_lap - 1, start_lap} & red)
+
+
 def stints_from_laps(laps: pd.DataFrame) -> pd.DataFrame:
     """One row per driver stint: compound, first/last lap, tyre age at the start.
 
@@ -183,7 +193,7 @@ def stints_from_laps(laps: pd.DataFrame) -> pd.DataFrame:
                 "laps": int(grp["lap"].max() - grp["lap"].min() + 1),
                 "age_start": max(0.0, age_start),
                 "fresh": bool(first["fresh"]) if pd.notna(first["fresh"]) else True,
-                "red_flag": bool(mine) and bool({int(first["lap"]) - 1, int(first["lap"])} & red),
+                "red_flag": bool(mine) and _changed_under_red(dl, int(first["lap"]), red),
                 "_seen": seen,
             })
         rows += mine

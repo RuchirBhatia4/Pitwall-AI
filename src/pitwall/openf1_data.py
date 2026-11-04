@@ -154,10 +154,18 @@ class OpenF1Session:
                     new = VSC_ENDING
                 elif "SAFETY CAR DEPLOYED" in msg:
                     new = SC
-                elif flag == "RED" and scope in (None, "Track"):
+                elif (flag == "RED" and scope in (None, "Track")) or msg.startswith("RED FLAG"):
+                    # race suspensions often come as text only ("RED FLAG - RACE SUSPENDED")
                     new = RED
+                elif status == RED:
+                    # The track is cleared while the cars wait in the pit lane; the
+                    # suspension lasts until the session restarts or the pit exit opens.
+                    if "ROLLING START" in msg or "BEHIND THE SAFETY CAR" in msg:
+                        new = SC
+                    elif msg == "SESSION STARTED" or "PIT EXIT OPEN" in msg:
+                        new = GREEN
                 elif (flag in ("GREEN", "CLEAR") and scope == "Track") or "TRACK CLEAR" in msg:
-                    new = GREEN if status in (SC, VSC, VSC_ENDING, RED) else None
+                    new = GREEN if status in (SC, VSC, VSC_ENDING) else None
                 if new and new != status:
                     rows.append((self._rel(pd.Series([m["date"]])).iloc[0], new))
                     status = new

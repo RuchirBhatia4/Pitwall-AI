@@ -117,3 +117,34 @@ def test_rain_forecast(monkeypatch):
     forecast._cache.clear()
     monkeypatch.setattr(forecast, "_fetch", boom)
     assert forecast.rain_forecast("Mexico City") is None  # never takes the live page down
+
+
+def test_text_only_red_flag_lasts_until_the_restart():
+    import pandas as pd
+    from src.pitwall.openf1_data import OpenF1Session
+    t = pd.Timestamp("2026-11-01T21:00:00Z")
+    rc = pd.DataFrame([
+        {"date": t, "message": "SAFETY CAR DEPLOYED", "flag": None, "scope": None, "category": "SafetyCar"},
+        {"date": t + pd.Timedelta(minutes=2), "message": "RED FLAG - RACE SUSPENDED", "flag": None, "scope": None, "category": "Other"},
+        {"date": t + pd.Timedelta(minutes=4), "message": "TRACK CLEAR", "flag": "CLEAR", "scope": "Track", "category": "Flag"},
+        {"date": t + pd.Timedelta(minutes=41), "message": "SESSION STARTED", "flag": None, "scope": None, "category": "SessionStatus"},
+    ])
+    s = OpenF1Session.__new__(OpenF1Session)
+    s._rel = lambda d: pd.to_datetime(d) - t
+    ts = s._track_status(rc)
+    assert list(ts["Status"]) == ["1", "4", "5", "1"]
+    assert ts["Time"].iloc[-1] == pd.Timedelta(minutes=41)  # not at TRACK CLEAR, mid-suspension
+
+
+def test_safety_car_stop_just_before_a_red_flag_is_a_stop():
+    import pandas as pd
+    from src.pitwall.race_data import stints_from_laps
+    rows = []
+    for drv, in_status in (("SCSTOP", "14"), ("REDCHG", "45")):
+        for lap in range(1, 48):
+            stint, comp, life = (1, "MEDIUM", lap) if lap <= 44 else (2, "SOFT", lap - 44)
+            ts = in_status if lap == 44 else "45" if lap == 45 else "1"
+            rows.append({"driver": drv, "lap": lap, "stint": stint, "compound": comp, "tyre_life": float(life), "fresh": True, "track_status": ts})
+    st = stints_from_laps(pd.DataFrame(rows)).set_index("driver")
+    assert not st.loc["SCSTOP"].iloc[1]["red_flag"]  # pitted under the Safety Car, before the red flag
+    assert st.loc["REDCHG"].iloc[1]["red_flag"]  # came in after the red flag: a free change, not a stop

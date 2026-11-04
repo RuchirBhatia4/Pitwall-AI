@@ -148,3 +148,43 @@ def test_safety_car_stop_just_before_a_red_flag_is_a_stop():
     st = stints_from_laps(pd.DataFrame(rows)).set_index("driver")
     assert not st.loc["SCSTOP"].iloc[1]["red_flag"]  # pitted under the Safety Car, before the red flag
     assert st.loc["REDCHG"].iloc[1]["red_flag"]  # came in after the red flag: a free change, not a stop
+
+
+def _synthetic_cars(fuel, deg, stop_laps, total=50, seed=3):
+    """Cars whose lap time = pace + deg * tyre age - fuel * lap + noise; one stop each."""
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    cars = []
+    for i, stop in enumerate(stop_laps):
+        laps, pace = [], 80 + 0.3 * i
+        for lap in range(1, total + 1):
+            first = lap <= stop
+            age = lap if first else lap - stop
+            t = pace + deg * age - fuel * lap + rng.normal(0, 0.15)
+            laps.append({"lap": lap, "time": t, "compound": "MEDIUM" if first else "HARD", "age": age,
+                         "pit_in": lap == stop, "pit_out": lap == stop + 1, "neutral": False})
+        cars.append({"driver": f"D{i}", "team": f"T{i % 5}", "laps": laps})
+    return cars
+
+
+def test_live_fuel_recovers_the_race_rate():
+    from src.pitwall.api import weekend_for
+    from src.pitwall.live_engine import live_fuel
+    from src.pitwall.tyre_model import TyreModel
+    prior = TyreModel.from_dict(weekend_for(18)["model"])
+    prior.fuel_per_lap, prior.quad = 0.058, 0.0
+    cars = _synthetic_cars(fuel=0.030, deg=0.04, stop_laps=[18, 20, 22, 24, 26, 28, 30, 32, 34, 36])
+    f = live_fuel(cars, prior)
+    assert f["cars"] == 10
+    assert abs(f["observed"] - 0.030) < 0.006
+    assert abs(f["posterior"] - 0.030) < abs(prior.fuel_per_lap - 0.030) / 2  # pulled most of the way
+
+
+def test_live_fuel_keeps_the_pre_race_rate_until_cars_have_stopped():
+    from src.pitwall.api import weekend_for
+    from src.pitwall.live_engine import FUEL_MIN_CARS, live_fuel
+    from src.pitwall.tyre_model import TyreModel
+    prior = TyreModel.from_dict(weekend_for(18)["model"])
+    cars = _synthetic_cars(fuel=0.030, deg=0.04, stop_laps=[20] * (FUEL_MIN_CARS - 1) + [60] * 6)
+    f = live_fuel(cars, prior)
+    assert f["observed"] is None and f["posterior"] == prior.fuel_per_lap

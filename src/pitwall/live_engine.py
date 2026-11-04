@@ -41,6 +41,7 @@ from src.pitwall.tyre_model import (
     TyreModel,
     _combine,
     _posterior,
+    _robust_lstsq,
     _theil_sen,
     live_update,
 )
@@ -72,6 +73,11 @@ GRAINING_MAX_AGE = 10  # tyre age up to which a sudden slowdown may be graining 
 TRACK_TEMP_SHIFT = 5.0  # deg C change since the start that makes earlier-stint wear a weaker guide
 STACK_SERVICE_S = 4.5  # s a teammate in the pit box ahead holds up a car that pits right behind it
 BAND_Z = 1.2816  # 80% central interval
+FUEL_PRIOR_SD = 0.018  # s/lap: spread of the fitted fuel-and-track rate between 2026 races
+FUEL_MIN_CARS = 4  # cars with clean laps on two sets of tyres before the race's own rate counts
+FUEL_SKIP_LAPS = 2  # first clean laps of each set left out (drivers push on fresh tyres)
+FUEL_SE_SCALE = 3.0  # widens the car-clustered error to what replays show it to be
+FUEL_SE_FLOOR = 0.003  # s/lap: a few clusters can make the clustered error collapse to ~0
 LIVE_SIMS = 80  # full-field race simulations per live update
 LIVE_PACE_PRIOR_LAPS = 8.0  # clean laps before a car's live pace outweighs its pre-race estimate
 _sim_cache: dict[tuple, dict] = {}
@@ -97,6 +103,59 @@ def _clean_stints(car: dict, fuel: float, exclude: frozenset[int] = frozenset())
             cur["times"].append(float(l["time"]))
             cur["laps"].append(float(l["lap"]))
     return [s for s in out if len(s["ages"]) >= 1]
+
+
+def live_fuel(cars: list[dict], prior: TyreModel, exclude: frozenset[int] = frozenset()) -> dict:
+    """This race's own fuel-burn (and track-evolution) rate, from the laps so far.
+
+    Within a stint tyre age and race lap rise together, so lap times only show
+    wear minus fuel; the pre-race rate splits the two, and a wrong rate shows up
+    as wrong wear (Mexico 2026: 0.058 assumed, 0.030 run, wear read ~3x too high).
+    A tyre change resets age while the lap count runs on, which separates them,
+    as in the post-race fit: car pace, compound offsets and wear per compound are
+    fitted alongside, and the estimate is combined with the pre-race rate.
+    """
+    rows = []
+    two_sets = 0
+    for i, c in enumerate(cars):
+        stints = [s for s in _clean_stints(c, prior.fuel_per_lap, exclude)
+                  if len(s["ages"]) >= LIVE_MIN_STINT_LAPS and s["compound"] in prior.compounds]
+        two_sets += len(stints) >= 2
+        rows += [(i, s["compound"], a, l, t) for s in stints
+                 for a, l, t in list(zip(s["ages"], s["laps"], s["times"]))[FUEL_SKIP_LAPS:]]
+    out = {"prior": prior.fuel_per_lap, "observed": None, "se": None, "posterior": prior.fuel_per_lap, "cars": int(two_sets)}
+    if two_sets < FUEL_MIN_CARS:
+        return out
+    car_ids = sorted({r[0] for r in rows})
+    comps = sorted({r[1] for r in rows})
+    ci, ki = {c: j for j, c in enumerate(car_ids)}, {c: j for j, c in enumerate(comps)}
+    n, nc, nk = len(rows), len(car_ids), len(comps)
+    X = np.zeros((n, nc + (nk - 1) + nk + 1))
+    car_i = np.array([ci[r[0]] for r in rows])
+    comp_i = np.array([ki[r[1]] for r in rows])
+    age = np.array([r[2] for r in rows])
+    lap = np.array([r[3] for r in rows])
+    X[np.arange(n), car_i] = 1.0
+    for j in range(1, nk):  # compound offsets vs the first compound (car pace absorbs the level)
+        X[:, nc + j - 1] = comp_i == j
+    X[np.arange(n), nc + nk - 1 + comp_i] = age
+    X[:, -1] = -lap
+    y = np.array([r[4] for r in rows]) - prior.quad * age**2
+    beta, keep = _robust_lstsq(X, y)
+    Xk, uk, gk = X[keep], (y - X @ beta)[keep], car_i[keep]
+    try:
+        bread = np.linalg.inv(Xk.T @ Xk)
+    except np.linalg.LinAlgError:
+        return out
+    # Laps of one car share its quirks (pushing after a stop, traffic, modes):
+    # errors clustered by car, so a handful of cars cannot look like hundreds of laps.
+    meat = sum(np.outer(v, v) for v in (Xk[gk == g].T @ uk[gk == g] for g in np.unique(gk)))
+    cov = bread @ meat @ bread * len(np.unique(gk)) / max(len(np.unique(gk)) - 1, 1)
+    f, se = float(beta[-1]), max(float(np.sqrt(max(cov[-1, -1], 0.0))), FUEL_SE_FLOOR) * FUEL_SE_SCALE
+    if not (np.isfinite(f) and np.isfinite(se) and se > 0):
+        return out
+    mu, _ = _posterior(prior.fuel_per_lap, FUEL_PRIOR_SD, f, se)
+    return out | {"observed": f, "se": se, "posterior": float(np.clip(mu, 0.0, 0.15))}
 
 
 def personal_wear(car: dict, model: TyreModel, exclude: frozenset[int] = frozenset()) -> dict:
@@ -367,6 +426,9 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
     prior = TyreModel.from_dict(weekend["model"])
     cond = assess_conditions(state)
     excl = frozenset(cond["excluded_laps"])
+    # 0. this race's fuel-burn rate: every wear number below is read through it
+    fuel = live_fuel(cars, prior, excl)
+    prior.fuel_per_lap = fuel["posterior"]
 
     # 1. field-wide live update of each compound's wear, then a *personal* wear
     #    multiplier for every car from all of its own race stints (partial pooling:
@@ -630,6 +692,7 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
         "model": {
             "pit_loss": round(pit_loss, 2),
             "pit_losses_observed": len(observed),
+            "fuel": fuel,
             "compounds": {c: {"deg": round(p.deg, 4), "deg_sd": round(p.deg_sd, 4), "offset": round(p.offset, 3)} for c, p in model.compounds.items()},
             "live_evidence": evidence,
             "car_deg": car_deg,

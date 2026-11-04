@@ -278,6 +278,14 @@ function ModelPanel({ a }: { a: Analysis }) {
         })}
         <div className="rounded-lg bg-surface-2 p-3 col-span-2 tabular">
           pit loss {a.model.pit_loss.toFixed(1)}s ({a.model.pit_losses_observed} stops observed) · track-position cost {a.model.stop_penalty}s/stop
+          {a.model.fuel && (
+            <div className="mt-1 text-text-3">
+              fuel + track gain {a.model.fuel.posterior.toFixed(3)} s/lap
+              {a.model.fuel.observed != null
+                ? ` (this race, from ${a.model.fuel.cars} cars on a second set; pre-race ${a.model.fuel.prior.toFixed(3)})`
+                : " (pre-race estimate until 4 cars have run a second set)"}
+            </div>
+          )}
         </div>
       </div>
     </div>

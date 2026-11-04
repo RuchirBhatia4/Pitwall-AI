@@ -387,6 +387,8 @@ export interface Analysis {
       current_stint_laps?: number;
     } | null;
     stop_penalty: number;
+    /** Lap time gained per lap from fuel burn and track evolution; measured live once cars have stopped. */
+    fuel?: { prior: number; observed: number | null; se: number | null; posterior: number; cars: number };
   };
   rejoin?: {
     position: number;

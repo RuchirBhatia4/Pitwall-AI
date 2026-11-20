@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import unicodedata
 from typing import Any
@@ -309,6 +310,27 @@ def run_tool(name: str, args: dict) -> tuple[str, bool]:
 # LLM mode
 # ---------------------------------------------------------------------------
 _llm_down_until = 0.0
+# A public site with a paid key: cap AI-mode questions per visitor and in total
+# per hour (PITWALL_CHAT_LLM_PER_VISITOR / PITWALL_CHAT_LLM_PER_HOUR); past the
+# cap the engine answers.
+LLM_PER_VISITOR = int(os.environ.get("PITWALL_CHAT_LLM_PER_VISITOR", "30"))
+LLM_PER_HOUR = int(os.environ.get("PITWALL_CHAT_LLM_PER_HOUR", "400"))
+_llm_calls: dict[str, list[float]] = {}
+_llm_calls_lock = threading.Lock()
+
+
+def _llm_allowed(visitor: str) -> bool:
+    now = time.time()
+    with _llm_calls_lock:
+        for k in list(_llm_calls):
+            _llm_calls[k] = [t for t in _llm_calls[k] if now - t < 3600]
+            if not _llm_calls[k]:
+                del _llm_calls[k]
+        mine = _llm_calls.setdefault(visitor, [])
+        if len(mine) >= LLM_PER_VISITOR or sum(len(v) for v in _llm_calls.values()) >= LLM_PER_HOUR:
+            return False
+        mine.append(now)
+        return True
 
 
 def llm_enabled() -> bool:
@@ -528,7 +550,7 @@ def chat_engine(messages: list[dict], context: dict) -> dict:
 def chat(messages: list[dict], context: dict) -> dict:
     global _llm_down_until
     _SESSION.set(context.get("session") or "default")
-    if llm_enabled():
+    if llm_enabled() and _llm_allowed(_SESSION.get()):
         import anthropic
 
         try:

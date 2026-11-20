@@ -103,6 +103,15 @@ def test_chat_live_answers_use_the_race_feed_without_connecting(monkeypatch):
     assert call["call"]["action"] and call["position"] == st["cars"][0]["position"]
 
 
+def test_ai_mode_is_capped_per_visitor_and_per_hour(monkeypatch):
+    from src.pitwall import chat
+    monkeypatch.setattr(chat, "_llm_calls", {})
+    monkeypatch.setattr(chat, "LLM_PER_VISITOR", 2)
+    monkeypatch.setattr(chat, "LLM_PER_HOUR", 3)
+    assert chat._llm_allowed("a") and chat._llm_allowed("a") and not chat._llm_allowed("a")
+    assert chat._llm_allowed("b") and not chat._llm_allowed("c")
+
+
 def test_chat_finds_races_by_nickname_and_without_accents():
     from src.pitwall.chat import _find_round
     assert _find_round("How did Interlagos go?", {})[0] == 20

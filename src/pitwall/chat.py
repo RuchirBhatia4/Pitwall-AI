@@ -235,6 +235,52 @@ def tool_live_race() -> dict:
     return out
 
 
+def tool_live_session() -> dict:
+    """Timing of the race weekend's session on air (or the last one run)."""
+    from src.pitwall.api import LIVE
+    from src.pitwall.live_sources import session_timing
+
+    s = _season()
+    rnd = s.get("live_round") or s.get("next_round")
+    if rnd is None:
+        return {"error": "The 2026 season is over."}
+    feed = LIVE._feed("signalr", rnd)
+    reducer = getattr(feed.source, "reducer", None)
+    for _ in range(16):  # a feed opened by this question takes a few seconds to send its snapshot
+        if reducer is None or reducer.data.get("SessionInfo"):
+            break
+        time.sleep(0.5)
+    if reducer is None or not reducer.data.get("SessionInfo"):
+        return {"error": "F1 live timing has not sent anything yet; try again in a few seconds."}
+    out = session_timing(reducer)
+    for c in out["cars"]:
+        if c["best_lap"] is not None:
+            c["best_lap"] = round(c["best_lap"], 3)
+    return {"round": rnd} | out
+
+
+def tool_circuit_history(round: int) -> dict:
+    from src.pitwall import track_history
+
+    d = _load(round)
+    w = d["weekend"]
+    v = track_history.venue_history(d["location"])
+    return {"round": round, "event": d["event"], "circuit": d["location"], "laps": w["total_laps"],
+            "pit_loss_s": _round(w["pit_loss"], 1), "safety_car_per_lap": _round(w["sc_rate"], 4), "vsc_per_lap": _round(w["vsc_rate"], 4),
+            "earlier_races_here": v.get("races"), "venue": {k: v[k] for k in v if k != "races"}}
+
+
+def tool_race_stints(round: int, driver: str | None = None) -> dict:
+    d = _load(round)
+    ov = d.get("overview")
+    if not ov:
+        return {"error": f"R{round} {d['event']} has not been raced yet."}
+    code = _driver_code(d, driver) if driver else None
+    stints = {k: [{"compound": s["compound"], "laps": f"{s['start_lap']}-{s['end_lap']}", "new": s.get("fresh"), "red_flag_change": s.get("red_flag") or None}
+                  for s in v] for k, v in ov["stints"].items() if not code or k == code}
+    return {"round": round, "event": d["event"], "neutralised_laps": ov.get("neutralised"), "stints": stints}
+
+
 def tool_live_call(driver: str) -> dict:
     from src.pitwall.api import shared_analysis
 
@@ -278,6 +324,12 @@ TOOLS: list[dict] = [
                       "additionalProperties": False, "required": ["round", "driver", "sc_lap"]}},
     {"name": "live_race", "description": "The live race right now: lap, track status (GREEN/SC/VSC/RED), every car's position, gap, interval, tyre and age, stops and penalties, recent race-control messages, weather and the rain chance for the next 2 hours. Uses the visitor's live tracker, or F1 live timing while a race is on air.",
      "input_schema": {"type": "object", "properties": {}, "additionalProperties": False, "required": []}},
+    {"name": "live_session", "description": "Timing of the race weekend's session on F1 live timing right now (practice, qualifying, sprint or race; or the last one run): each driver's position, best and last lap, gap to fastest, laps run, tyre and age, knocked out in qualifying, plus race control and weather.",
+     "input_schema": {"type": "object", "properties": {}, "additionalProperties": False, "required": []}},
+    {"name": "circuit_history", "description": "A circuit's race context for a round: laps, pit-lane loss, Safety Car / VSC rate per lap used by the model, and its 2024-25 races (Safety Cars, VSCs, pit loss, overtaking difficulty).",
+     "input_schema": {"type": "object", "properties": {"round": {"type": "integer"}}, "additionalProperties": False, "required": ["round"]}},
+    {"name": "race_stints", "description": "Tyre stints every driver (or one driver) actually ran in a finished race: compound and laps of each stint, whether the set was new, red-flag changes, and the Safety Car / VSC / red-flag laps.",
+     "input_schema": {"type": "object", "properties": {"round": {"type": "integer"}, "driver": {"type": ["string", "null"]}}, "additionalProperties": False, "required": ["round", "driver"]}},
     {"name": "live_call", "description": "Current live pit-wall call for a driver: box/stay out, target lap, next tyre, rejoin position, undercut threats, the top plans and the race simulation. Uses the visitor's live tracker, or F1 live timing while a race is on air.",
      "input_schema": {"type": "object", "properties": {"driver": {"type": "string"}}, "additionalProperties": False, "required": ["driver"]}},
     {"name": "backtest", "description": "Season walk-forward validation metrics of the prediction model vs a naive baseline.",
@@ -293,6 +345,9 @@ HANDLERS = {
     "evaluate_plan": lambda a: tool_evaluate_plan(int(a["round"]), a["driver"], a["compounds"], [int(x) for x in a["pit_laps"]]),
     "safety_car_whatif": lambda a: tool_safety_car_whatif(int(a["round"]), a["driver"], int(a["sc_lap"])),
     "live_race": lambda a: tool_live_race(),
+    "live_session": lambda a: tool_live_session(),
+    "circuit_history": lambda a: tool_circuit_history(int(a["round"])),
+    "race_stints": lambda a: tool_race_stints(int(a["round"]), a.get("driver")),
     "live_call": lambda a: tool_live_call(a["driver"]),
     "backtest": lambda a: tool_backtest(),
 }
@@ -457,6 +512,19 @@ def _fmt_plan(p: dict | None) -> str:
     return f"{comps}, pit {laps}{extra}"
 
 
+SESSION_WORDS = ("practice", "fp1", "fp2", "fp3", "qualifying", "quali", "fastest lap", "pole")
+
+
+def _season_current() -> int:
+    from src.pitwall.api import default_round
+
+    return default_round(_season()) or 16
+
+
+def _lap(sec: float | None) -> str:
+    return f"{int(sec // 60)}:{sec % 60:06.3f}" if sec else "-"
+
+
 LIVE_RACE_WORDS = ("leading", "leader", "running order", "positions", "race control", "track status", "right now", "happening", "who is winning", "who's winning")
 
 
@@ -481,6 +549,28 @@ def chat_engine(messages: list[dict], context: dict) -> dict:
                 note += f"R{asked} {_load(asked)['event']} has no grid until qualifying, so this is from R{rnd} {_load(rnd)['event']}. "
             else:
                 rnd = asked
+        if any(k in t for k in SESSION_WORDS) and not note and asked == _season_current():
+            used.append("live_session")
+            r = tool_live_session()
+            if "error" not in r:
+                ses = r["session"]
+                timed = [c for c in r["cars"] if c.get("best_lap")]
+                order = " · ".join(f"{c['position']}. {c['driver']} {_lap(c['best_lap'])} ({c['tyre'].title()})" for c in timed[:10])
+                state = {"Started": "live", "Ends": "finished", "Finished": "finished", "Finalised": "finished", "Inactive": "not started yet"}.get(ses.get("status"), "on air")
+                return {"reply": f"{ses.get('meeting') or ''} {ses.get('name') or 'session'} ({state}): "
+                                 f"{order or 'no timed laps yet'}.", "tools_used": used, "mode": "engine (no LLM key configured)"}
+        if any(k in t for k in ("history", "last year", "previous years", "before at", "usually")):
+            used.append("circuit_history")
+            r = tool_circuit_history(rnd if rnd == asked else asked)
+            v = r["venue"]
+            return {"reply": (f"{note}{r['circuit']} ({r['event']}): {r['laps']} laps, pit loss {r['pit_loss_s']}s. In {r['earlier_races_here']} race(s) here in "
+                              f"2024-25: {v.get('sc_starts')} Safety Car(s), {v.get('vsc_starts')} VSC(s). The model uses {r['safety_car_per_lap'] * 100:.1f}% SC "
+                              f"and {r['vsc_per_lap'] * 100:.1f}% VSC per lap."), "tools_used": used, "mode": "engine (no LLM key configured)"}
+        if any(k in t for k in ("stint", "tyres did", "tyres were", "what tyres", "which tyres")) and _load(asked).get("overview"):
+            used.append("race_stints")
+            r = tool_race_stints(asked, drv)
+            lines = [f"{k}: " + " → ".join(f"{x['compound'].title()} L{x['laps']}" for x in v) for k, v in list(r["stints"].items())[:22]]
+            return {"reply": f"{r['event']} stints:\n" + "\n".join(lines), "tools_used": used, "mode": "engine (no LLM key configured)"}
         if not drv and any(k in t for k in LIVE_RACE_WORDS):
             used.append("live_race")
             r = tool_live_race()

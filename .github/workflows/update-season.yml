@@ -1,0 +1,67 @@
+# Keeps the published season current: after each session of a race weekend,
+# rebuilds that round from OpenF1, checks it, and pushes it to main (Render and
+# Vercel redeploy from main). See src/pitwall/auto_update.py for the checks.
+name: Update season data
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"  # every 30 min; a run with nothing due takes seconds
+  workflow_dispatch:
+
+concurrency:
+  group: update-season
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Anything due?
+        id: due
+        run: |
+          waiting=$(python3 -m src.pitwall.auto_update due)
+          echo "waiting: $waiting"
+          echo "waiting=$waiting" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v5
+        if: steps.due.outputs.waiting != 'none'
+        with:
+          python-version-file: .python-version
+          cache: pip
+
+      - name: Install
+        if: steps.due.outputs.waiting != 'none'
+        run: pip install -r requirements.txt
+
+      - name: OpenF1 response cache
+        if: steps.due.outputs.waiting != 'none'
+        uses: actions/cache@v4
+        with:
+          path: data/raw/openf1
+          key: openf1-${{ github.run_id }}
+          restore-keys: openf1-
+
+      - name: Build and check
+        if: steps.due.outputs.waiting != 'none'
+        run: python -m src.pitwall.auto_update build
+
+      - name: Tests
+        if: steps.due.outputs.waiting != 'none'
+        run: python -m pytest -q tests
+
+      - name: Publish
+        if: steps.due.outputs.waiting != 'none'
+        run: |
+          if [ -z "$(git status --porcelain data/season)" ]; then echo "no data change"; exit 0; fi
+          git config user.name "pitwall-data"
+          git config user.email "pitwall-data@users.noreply.github.com"
+          git add data/season
+          git commit -F .update-message
+          git pull --rebase origin main
+          git push origin HEAD:main

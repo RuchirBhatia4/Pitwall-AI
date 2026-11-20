@@ -69,8 +69,22 @@ def _ctx(w: dict, team: str | None = None, behaviour: dict | None = None, driver
 
 
 @lru_cache(maxsize=4096)
+def saved_round(rnd: int) -> dict | None:
+    """Round rnd as last built (rNN.json). Rounds are built in order, so a later
+    round reads an earlier one's weekend, grid and results from here instead of
+    reloading all its sessions: F1's archive is closed and those sessions exist
+    only in a local cache, which the scheduled update (auto_update) doesn't have."""
+    path = OUT_DIR / f"r{rnd:02d}.json"
+    return json.loads(path.read_text()) if path.exists() else None
+
+
+def _weekend_of(rnd: int) -> dict:
+    saved = saved_round(rnd)
+    return saved["weekend"] if saved else build_weekend(rnd)
+
+
 def field_prediction(rnd: int, idx: int) -> dict | None:
-    w = build_weekend(rnd)
+    w = _weekend_of(rnd)
     b = BEHAVIOUR_GRID[idx]
     res = Optimizer(TyreModel.from_dict(w["model"]), _ctx(w, behaviour=b)).optimise(top=1)
     return res[0].to_dict() if res else None
@@ -81,7 +95,7 @@ def round_actuals(rnd: int) -> tuple[int, tuple[tuple, ...]] | None:
     """Actual plans of classified finishers that made 1-3 stops (no incident chaos)."""
     if not race_is_finished(rnd):
         return None
-    ov = race_overview(YEAR, rnd)
+    ov = (saved_round(rnd) or {}).get("overview") or race_overview(YEAR, rnd)
     fit = race_fit(rnd)
     if ov.get("rain") or (fit or {}).get("wet"):
         return None
@@ -203,7 +217,10 @@ def sim_params(rnd: int, drivers: list[dict], location: str) -> SimParams | None
     for r in range(1, rnd):
         fit = race_fit(r) if race_is_finished(r) else None
         if fit and fit.get("model") and not fit.get("wet"):
-            history.append((r, race_pace(fit["model"]), {d["driver"]: d.get("quali") or d.get("grid") for d in build_weekend(r)["drivers"]}))
+            saved = saved_round(r)
+            # the qualifying line-up (a saved round also lists race-only entrants)
+            lineup = [d for d in saved["drivers"] if "quali" in d] if saved else build_weekend(r)["drivers"]
+            history.append((r, race_pace(fit["model"]), {d["driver"]: d.get("quali") or d.get("grid") for d in lineup}))
     pace_model = fit_pace_model(history, rnd)
     passes = fit_pass_model({r: p for r in range(1, rnd) if race_is_finished(r) and (p := race_pairs(r)) is not None and len(p)})
     # Pace from qualifying (how fast the car is); the grid, with penalties,
@@ -474,8 +491,6 @@ def main(only: int | None = None) -> None:
     history: dict[int, dict] = {}
     residuals: list[float] = []
     for rnd in targets:
-        behaviour = calibrate_behaviour(rnd)
-        q = conformal_q(residuals)
         if only and rnd != only:
             # still need history for walk-forward calibration
             prev = OUT_DIR / f"r{rnd:02d}.json"
@@ -486,6 +501,8 @@ def main(only: int | None = None) -> None:
                     if not data["metrics"]["wet"]:
                         residuals += data["metrics"]["first_stop_errors"]
                 continue
+        behaviour = calibrate_behaviour(rnd)
+        q = conformal_q(residuals)
         data = _clean(build_round(rnd, behaviour, q))
         (OUT_DIR / f"r{rnd:02d}.json").write_text(json.dumps(data))
         m = data.get("metrics")
@@ -515,7 +532,10 @@ def write_index() -> None:
         path = OUT_DIR / f"r{rnd:02d}.json"
         entry = {"round": rnd, "event": str(ev["EventName"]), "location": str(ev["Location"]), "country": str(ev["Country"]),
                  "date": str(ev["EventDate"].date()), "format": str(ev["EventFormat"]), "available": path.exists(),
-                 "race_start_utc": str(ev["Session5DateUtc"])}
+                 "race_start_utc": str(ev["Session5DateUtc"]),
+                 # session starts (UTC), for the scheduled update (auto_update.due)
+                 "sessions": {str(ev[f"Session{i}"]): str(ev[f"Session{i}DateUtc"]) for i in range(1, 6)
+                              if ev[f"Session{i}"] and not pd.isna(ev[f"Session{i}DateUtc"])}}
         if path.exists():
             data = json.loads(path.read_text())
             entry["status"] = data["status"]

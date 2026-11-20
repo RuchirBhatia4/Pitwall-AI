@@ -38,3 +38,6 @@ data/season/live_*.txt
 
 # OpenF1 responses (finished sessions never change; refetched if missing).
 data/raw/openf1/
+
+# commit message left by the scheduled data update (src/pitwall/auto_update.py)
+.update-message

@@ -150,6 +150,19 @@ def test_safety_car_stop_just_before_a_red_flag_is_a_stop():
     assert st.loc["REDCHG"].iloc[1]["red_flag"]  # came in after the red flag: a free change, not a stop
 
 
+def test_pit_lane_pass_after_a_red_flag_is_not_a_stop():
+    # Monaco 2026: a set fitted in the suspension, then the field led through the pit lane
+    # on the restart lap. Tyre age stands still over both, and the second piece is no stop.
+    import pandas as pd
+    from src.pitwall.race_data import stints_from_laps
+    life = {66: 66, 67: 67, 68: 1, 69: 1, 70: 2}
+    rows = [{"driver": "LIN", "lap": lap, "stint": 1 if lap <= 67 else 2 if lap == 68 else 3, "compound": "MEDIUM" if lap <= 67 else "SOFT",
+             "tyre_life": float(life[lap]), "fresh": lap == 68, "track_status": {67: "451", 68: "14"}.get(lap, "4")} for lap in range(66, 71)]
+    st = stints_from_laps(pd.DataFrame(rows))
+    assert list(st["compound"]) == ["MEDIUM", "SOFT"]
+    assert st.iloc[1]["red_flag"] and st.iloc[1]["end_lap"] == 70
+
+
 def _synthetic_cars(fuel, deg, stop_laps, total=50, seed=3):
     """Cars whose lap time = pace + deg * tyre age - fuel * lap + noise; one stop each."""
     import numpy as np

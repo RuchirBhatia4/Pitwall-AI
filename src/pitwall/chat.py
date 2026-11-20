@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import time
+import unicodedata
 from typing import Any
 
 from src.pitwall.optimizer import SHORT, Optimizer, RaceContext, TyreState
@@ -317,22 +318,40 @@ def chat_llm(messages: list[dict], context: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Engine mode (no LLM): intent parsing + templated answers
 # ---------------------------------------------------------------------------
-def _find_round(text: str, context: dict) -> int:
-    from src.pitwall.api import default_round
+# What people call a circuit when it isn't the schedule's location or country.
+ROUND_ALIASES = {"vegas": "las vegas", "interlagos": "sao paulo", "cota": "austin", "spa": "spa-francorchamps", "albert park": "melbourne"}
+
+
+def _plain(s: str) -> str:
+    return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().lower()
+
+
+def _find_round(text: str, context: dict) -> tuple[int, str]:
+    """The round a question is about, and a note when it had to fall back: a
+    round is answerable only once its rNN.json is built (after its practice)."""
+    from src.pitwall.api import DATA, default_round
 
     s = _season()
     current = default_round(s) or 16
-    t = text.lower()
-    if any(k in t for k in ("tonight", "today", "this race", "live", "sepang", "malaysia", "kuala lumpur", "bahrain")):
-        return current
-    for r in s["rounds"]:
-        keys = {r["location"].lower(), r["event"].lower().replace(" grand prix", ""), r["country"].lower()}
-        if any(k and k in t for k in keys):
-            return r["round"]
-    m = re.search(r"\b(?:round|r)\s?(\d{1,2})\b", t)
-    if m:
-        return int(m.group(1))
-    return context.get("round") or current
+    t = _plain(text)
+    for alias, loc in ROUND_ALIASES.items():
+        t = re.sub(rf"\b{alias}\b", loc, t)
+    rnd = None
+    if not any(k in t for k in ("tonight", "today", "this race", "live")):
+        for r in s["rounds"]:
+            keys = {_plain(r["location"]), _plain(r["event"]).replace(" grand prix", ""), _plain(r["country"])}
+            if any(k and re.search(rf"\b{re.escape(k)}\b", t) for k in keys):
+                rnd = r["round"]
+                break
+        m = re.search(r"\b(?:round|r)\s?(\d{1,2})\b", t)
+        if rnd is None and m:
+            rnd = int(m.group(1))
+        if rnd is None:
+            rnd = context.get("round")
+    if rnd is None or rnd == current or (DATA / f"r{rnd:02d}.json").exists():
+        return rnd or current, ""
+    ev = next((r["event"] for r in s["rounds"] if r["round"] == rnd), f"Round {rnd}")
+    return current, f"R{rnd} {ev} is built once its practice sessions have run, so this is R{current}. "
 
 
 def _with_grid(rnd: int) -> int:
@@ -378,13 +397,13 @@ def chat_engine(messages: list[dict], context: dict) -> dict:
                               f"first-stop error {b['first_stop_mae']:.1f} laps (baseline {b['baseline']['first_stop_mae']:.1f}). "
                               f"80% conformal intervals covered {b['conformal_coverage']:.0%} of actual first stops."),
                     "tools_used": used, "mode": "engine (no LLM key configured)"}
-        asked = _find_round(q, context)
+        asked, note = _find_round(q, context)
         rnd = _with_grid(asked)
         drv = _find_driver(q, rnd)
-        note = ""
         if rnd != asked:
-            note = f"R{asked} {_load(asked)['event']} has no grid until qualifying, so this is from R{rnd} {_load(rnd)['event']}. "
-            if not drv:
+            if drv:
+                note += f"R{asked} {_load(asked)['event']} has no grid until qualifying, so this is from R{rnd} {_load(rnd)['event']}. "
+            else:
                 rnd = asked
         if drv and ("safety car" in t or re.search(r"\bsc\b", t)):
             m = re.search(r"lap\s?(\d{1,2})", t)
@@ -429,7 +448,7 @@ def chat_engine(messages: list[dict], context: dict) -> dict:
         r = tool_race_summary(rnd)
         mix = ", ".join(f"{k} ×{v}" for k, v in r["predicted_strategies_count"].items())
         mix = f"Predicted strategy mix: {mix}." if mix else "Strategy predictions appear once qualifying sets the grid."
-        lines = [f"R{rnd} {r['event']} ({r['location']}, {r['laps']} laps, pit loss {r['pit_loss_s']}s). {mix}"]
+        lines = [f"{note}R{rnd} {r['event']} ({r['location']}, {r['laps']} laps, pit loss {r['pit_loss_s']}s). {mix}"]
         if r.get("top5"):
             lines.append("Result: " + "; ".join(r["top5"]) + ".")
             lines.append("Actual strategies: " + ", ".join(f"{k} ×{v}" for k, v in r["actual_strategies_count"].items()) + ".")
@@ -437,7 +456,9 @@ def chat_engine(messages: list[dict], context: dict) -> dict:
         return {"reply": "\n".join(lines), "tools_used": used, "mode": "engine (no LLM key configured)"}
     except Exception as exc:
         log.exception("engine chat failed")
-        return {"reply": f"The engine couldn't answer that ({type(exc).__name__}: {exc}).", "tools_used": used, "mode": "engine"}
+        detail = getattr(exc, "detail", None) or f"{type(exc).__name__}: {exc}"
+        return {"reply": f"The engine couldn't answer that one ({detail}). Try naming a driver or a race, e.g. 'Verstappen at Las Vegas'.",
+                "tools_used": used, "mode": "engine"}
 
 
 def chat(messages: list[dict], context: dict) -> dict:

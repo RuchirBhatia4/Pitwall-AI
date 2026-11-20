@@ -76,6 +76,23 @@ def test_chat_engine_mode_answers_from_tools(monkeypatch, after_mexico):
     assert "Verstappen" in j["reply"]
 
 
+def test_chat_never_fails_on_a_round_that_is_not_built(monkeypatch, after_mexico):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("PITWALL_USE_LLM", raising=False)
+    for q, ctx in (("What strategy will they run in Qatar?", {}), ("Best plan for Verstappen?", {"round": 23}), ("Who wins in Abu Dhabi?", {"round": 22})):
+        j = client.post("/api/chat", json={"messages": [{"role": "user", "content": q}], "context": ctx}).json()
+        assert "couldn't answer" not in j["reply"], j["reply"]
+        assert "is built once its practice sessions have run" in j["reply"]
+
+
+def test_chat_finds_races_by_nickname_and_without_accents():
+    from src.pitwall.chat import _find_round
+    assert _find_round("How did Interlagos go?", {})[0] == 20
+    assert _find_round("sao paulo strategies", {})[0] == 20
+    assert _find_round("Bahrain one-stop?", {})[0] == 16
+
+
 # ---------------------------------------------------------------------------
 # live tracker: per-visitor sessions
 # ---------------------------------------------------------------------------

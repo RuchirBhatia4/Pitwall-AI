@@ -144,14 +144,25 @@ def _periods(laps_list: list[int]) -> list[tuple[int, int]]:
     return periods
 
 
+def _changed_under_red(dl: pd.DataFrame, start_lap: int, red: set[int]) -> bool:
+    """The set was fitted during a suspension: the driver's own in-lap ran (partly)
+    under the red flag. A stop under the Safety Car just before the red flag is
+    a real stop although the next stint starts on a red-flag lap (Mexico 2026)."""
+    in_lap = dl[dl["lap"] == start_lap - 1]
+    if len(in_lap) and pd.notna(in_lap["track_status"].iloc[0]):
+        return STATUS_RED in str(in_lap["track_status"].iloc[0])
+    return bool({start_lap - 1, start_lap} & red)
+
+
 def stints_from_laps(laps: pd.DataFrame) -> pd.DataFrame:
     """One row per driver stint: compound, first/last lap, tyre age at the start.
 
     A trip down the pit lane that leaves the same set on the car (the field led
     through the pit lane behind the Safety Car, a drive-through) starts a new
-    stint in the timing feed although no tyres were changed: tyre age runs on,
-    so those pieces are merged (Baku and Monaco 2026). `red_flag`: the set was
-    changed while the race was suspended, which F1 does not count as a pit stop.
+    stint in the timing feed although no tyres were changed: tyre age runs on
+    (or stands still over a suspension and the pit-lane lap after it), so those
+    pieces are merged (Baku and Monaco 2026). `red_flag`: the set was changed
+    while the race was suspended, which F1 does not count as a pit stop.
     """
     cols = ["driver", "stint", "compound", "start_lap", "end_lap", "laps", "age_start", "fresh", "red_flag"]
     if laps.empty:
@@ -167,8 +178,10 @@ def stints_from_laps(laps: pd.DataFrame) -> pd.DataFrame:
             known = grp.dropna(subset=["tyre_life"])
             seen = (int(known["lap"].iloc[-1]), float(known["tyre_life"].iloc[-1])) if len(known) else None  # (lap, tyre age) last seen
             prev = mine[-1] if mine else None
-            if (prev and compound == prev["compound"] and prev["_seen"] and len(known)
-                    and float(known["tyre_life"].iloc[0]) == prev["_seen"][1] + known["lap"].iloc[0] - prev["_seen"][0]):
+            age0 = float(known["tyre_life"].iloc[0]) if len(known) else None
+            ran_on = prev["_seen"][1] + known["lap"].iloc[0] - prev["_seen"][0] if prev and prev["_seen"] and age0 is not None else None
+            stood = ran_on is not None and prev["_seen"][1] <= age0 < ran_on and not (pd.notna(first["fresh"]) and bool(first["fresh"]))
+            if prev and compound == prev["compound"] and ran_on is not None and (age0 == ran_on or stood):
                 prev["end_lap"] = int(grp["lap"].max())
                 prev["laps"] = prev["end_lap"] - prev["start_lap"] + 1
                 prev["_seen"] = seen
@@ -183,7 +196,7 @@ def stints_from_laps(laps: pd.DataFrame) -> pd.DataFrame:
                 "laps": int(grp["lap"].max() - grp["lap"].min() + 1),
                 "age_start": max(0.0, age_start),
                 "fresh": bool(first["fresh"]) if pd.notna(first["fresh"]) else True,
-                "red_flag": bool(mine) and bool({int(first["lap"]) - 1, int(first["lap"])} & red),
+                "red_flag": bool(mine) and _changed_under_red(dl, int(first["lap"]), red),
                 "_seen": seen,
             })
         rows += mine

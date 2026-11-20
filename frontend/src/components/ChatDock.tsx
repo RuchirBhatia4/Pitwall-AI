@@ -15,7 +15,7 @@ interface Msg {
 const SUGGESTIONS = [
   "When should Russell pit tonight?",
   "Compare one-stop and two-stop for Verstappen",
-  "How did Baku's strategies compare with the model?",
+  "Who's leading right now, and on what tyres?",
   "What happens to Leclerc if there's a Safety Car on lap 20?",
 ];
 

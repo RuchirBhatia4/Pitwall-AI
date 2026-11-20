@@ -41,6 +41,7 @@ from src.pitwall.tyre_model import (
     TyreModel,
     _combine,
     _posterior,
+    _robust_lstsq,
     _theil_sen,
     live_update,
 )
@@ -64,8 +65,19 @@ CROSSOVER_MARGIN = 2.0  # s of net gain required before switching tyre type
 # appears in dry races (it held every stop in Austin's pit windows), so it is
 # not a wet-track sign; real rain shows up in tyres, lap times and the weather.
 RC_WET = re.compile(r"\b(WET|RAIN(?:ING)?|INTERMEDIATE)\b")
-OUTLAP_WARMUP = 0.8  # s lost on the out-lap while new tyres come in (undercut maths)
+# s lost on the out-lap while new tyres come in (undercut maths). 2026 out-laps:
+# hards ~0.4 s slower than mediums once base pace is removed, softs no different.
+OUTLAP_WARMUP = {"SOFT": 0.8, "MEDIUM": 0.8, "HARD": 1.2}
+HELD_UP_GAP = 1.0  # s to the car ahead: lap times carry dirty air, not just tyre wear
+GRAINING_MAX_AGE = 10  # tyre age up to which a sudden slowdown may be graining that clears
+TRACK_TEMP_SHIFT = 5.0  # deg C change since the start that makes earlier-stint wear a weaker guide
+STACK_SERVICE_S = 4.5  # s a teammate in the pit box ahead holds up a car that pits right behind it
 BAND_Z = 1.2816  # 80% central interval
+FUEL_PRIOR_SD = 0.018  # s/lap: spread of the fitted fuel-and-track rate between 2026 races
+FUEL_MIN_CARS = 4  # cars with clean laps on two sets of tyres before the race's own rate counts
+FUEL_SKIP_LAPS = 2  # first clean laps of each set left out (drivers push on fresh tyres)
+FUEL_SE_SCALE = 3.0  # widens the car-clustered error to what replays show it to be
+FUEL_SE_FLOOR = 0.003  # s/lap: a few clusters can make the clustered error collapse to ~0
 LIVE_SIMS = 80  # full-field race simulations per live update
 LIVE_PACE_PRIOR_LAPS = 8.0  # clean laps before a car's live pace outweighs its pre-race estimate
 _sim_cache: dict[tuple, dict] = {}
@@ -91,6 +103,59 @@ def _clean_stints(car: dict, fuel: float, exclude: frozenset[int] = frozenset())
             cur["times"].append(float(l["time"]))
             cur["laps"].append(float(l["lap"]))
     return [s for s in out if len(s["ages"]) >= 1]
+
+
+def live_fuel(cars: list[dict], prior: TyreModel, exclude: frozenset[int] = frozenset()) -> dict:
+    """This race's own fuel-burn (and track-evolution) rate, from the laps so far.
+
+    Within a stint tyre age and race lap rise together, so lap times only show
+    wear minus fuel; the pre-race rate splits the two, and a wrong rate shows up
+    as wrong wear (Mexico 2026: 0.058 assumed, 0.030 run, wear read ~3x too high).
+    A tyre change resets age while the lap count runs on, which separates them,
+    as in the post-race fit: car pace, compound offsets and wear per compound are
+    fitted alongside, and the estimate is combined with the pre-race rate.
+    """
+    rows = []
+    two_sets = 0
+    for i, c in enumerate(cars):
+        stints = [s for s in _clean_stints(c, prior.fuel_per_lap, exclude)
+                  if len(s["ages"]) >= LIVE_MIN_STINT_LAPS and s["compound"] in prior.compounds]
+        two_sets += len(stints) >= 2
+        rows += [(i, s["compound"], a, l, t) for s in stints
+                 for a, l, t in list(zip(s["ages"], s["laps"], s["times"]))[FUEL_SKIP_LAPS:]]
+    out = {"prior": prior.fuel_per_lap, "observed": None, "se": None, "posterior": prior.fuel_per_lap, "cars": int(two_sets)}
+    if two_sets < FUEL_MIN_CARS:
+        return out
+    car_ids = sorted({r[0] for r in rows})
+    comps = sorted({r[1] for r in rows})
+    ci, ki = {c: j for j, c in enumerate(car_ids)}, {c: j for j, c in enumerate(comps)}
+    n, nc, nk = len(rows), len(car_ids), len(comps)
+    X = np.zeros((n, nc + (nk - 1) + nk + 1))
+    car_i = np.array([ci[r[0]] for r in rows])
+    comp_i = np.array([ki[r[1]] for r in rows])
+    age = np.array([r[2] for r in rows])
+    lap = np.array([r[3] for r in rows])
+    X[np.arange(n), car_i] = 1.0
+    for j in range(1, nk):  # compound offsets vs the first compound (car pace absorbs the level)
+        X[:, nc + j - 1] = comp_i == j
+    X[np.arange(n), nc + nk - 1 + comp_i] = age
+    X[:, -1] = -lap
+    y = np.array([r[4] for r in rows]) - prior.quad * age**2
+    beta, keep = _robust_lstsq(X, y)
+    Xk, uk, gk = X[keep], (y - X @ beta)[keep], car_i[keep]
+    try:
+        bread = np.linalg.inv(Xk.T @ Xk)
+    except np.linalg.LinAlgError:
+        return out
+    # Laps of one car share its quirks (pushing after a stop, traffic, modes):
+    # errors clustered by car, so a handful of cars cannot look like hundreds of laps.
+    meat = sum(np.outer(v, v) for v in (Xk[gk == g].T @ uk[gk == g] for g in np.unique(gk)))
+    cov = bread @ meat @ bread * len(np.unique(gk)) / max(len(np.unique(gk)) - 1, 1)
+    f, se = float(beta[-1]), max(float(np.sqrt(max(cov[-1, -1], 0.0))), FUEL_SE_FLOOR) * FUEL_SE_SCALE
+    if not (np.isfinite(f) and np.isfinite(se) and se > 0):
+        return out
+    mu, _ = _posterior(prior.fuel_per_lap, FUEL_PRIOR_SD, f, se)
+    return out | {"observed": f, "se": se, "posterior": float(np.clip(mu, 0.0, 0.15))}
 
 
 def personal_wear(car: dict, model: TyreModel, exclude: frozenset[int] = frozenset()) -> dict:
@@ -155,7 +220,43 @@ def _undercut_gain(model: TyreModel, team: str | None, old_c: str, old_age: int,
         return 0.0
     old = model.lap_delta(old_c, np.arange(old_age + 1, old_age + laps + 1), team, driver).sum()
     new = model.lap_delta(new_c, np.arange(1, laps + 1), team, driver).sum()
-    return float(old - new - OUTLAP_WARMUP)
+    return float(old - new - OUTLAP_WARMUP.get(new_c, 0.8))
+
+
+def _covered_gain(model: TyreModel, team: str | None, old_c: str, old_age: int, new_c: str, driver: str | None = None) -> float:
+    """What an undercut still gains if the rival pits the very next lap.
+
+    Lap 1: undercutter on new tyres (+ warm-up) vs the rival's old tyres at age+1.
+    Lap 2: rival's out-lap (+ warm-up) vs the undercutter's second lap. Warm-ups cancel.
+    """
+    if old_c not in model.compounds or new_c not in model.compounds:
+        return 0.0
+    return float(model.lap_delta(old_c, np.array([old_age + 1]), team, driver).sum() - model.lap_delta(new_c, np.array([2]), team, driver).sum())
+
+
+def _graining_cleared(res: np.ndarray, ages: np.ndarray, band: float) -> bool:
+    """>= 3 consecutive laps above the model band early in the stint, then the
+    last 3 laps all back inside it: the shape of graining, not of wear."""
+    if len(res) < 7 or not (np.abs(res[-3:]) < band).all():
+        return False
+    run = 0
+    for r, a in zip(res[:-3], ages[:-3]):
+        run = run + 1 if r > band and a <= GRAINING_MAX_AGE + 4 else 0
+        if run >= 3:
+            return True
+    return False
+
+
+def track_temperature(weather: dict) -> dict | None:
+    now, start = weather.get("track_temp"), weather.get("track_temp_start")
+    if now is None:
+        return None
+    change = round(now - start, 1) if start is not None else None
+    note = None
+    if change is not None and abs(change) >= TRACK_TEMP_SHIFT:
+        note = (f"Track {change:+.0f}°C since the start: " +
+                ("expect more wear than earlier stints showed" if change > 0 else "expect less wear than earlier stints showed"))
+    return {"temp": round(now, 1), "start": round(start, 1) if start is not None else None, "change": change, "note": note}
 
 
 def _ran_wets(car: dict) -> bool:
@@ -293,9 +394,7 @@ def live_race_sim(state: dict, weekend: dict, model: TyreModel, ctx: RaceContext
     gaps = {c["driver"]: float(c["gap_to_leader"]) for c in running}
     tyres = {c["driver"]: (c["compound"], int(c["tyre_age"])) for c in running}
     neutral = {"SC": 2, "VSC": 1, "VSC_ENDING": 1}.get(state["track_status"], 0)
-    # Same wear-vs-fuel setting as the validated pre-race simulation.
-    sim_ctx = RaceContext(**{**ctx.__dict__, "fuel_wear": FUEL_WEAR_FACTOR})
-    sim = RaceSim(model, sim_ctx, [{"driver": c["driver"], "team": c.get("team"), "tyre_sets": _live_sets(weekend, c)} for c in running], params, sims=LIVE_SIMS,
+    sim = RaceSim(model, ctx, [{"driver": c["driver"], "team": c.get("team"), "tyre_sets": _live_sets(weekend, c)} for c in running], params, sims=LIVE_SIMS,
                   start_lap=k, gaps=gaps, tyres=tyres, neutral_now=neutral)
     field = {c["driver"]: rival_plans.get(c["driver"], Plan([c["compound"]], [])) for c in running}
     ranked = sim.best_response(car["driver"], [Plan.of(p) for p in plans], field)
@@ -325,6 +424,9 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
     prior = TyreModel.from_dict(weekend["model"])
     cond = assess_conditions(state)
     excl = frozenset(cond["excluded_laps"])
+    # 0. this race's fuel-burn rate: every wear number below is read through it
+    fuel = live_fuel(cars, prior, excl)
+    prior.fuel_per_lap = fuel["posterior"]
 
     # 1. field-wide live update of each compound's wear, then a *personal* wear
     #    multiplier for every car from all of its own race stints (partial pooling:
@@ -346,11 +448,22 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
     # 3. optimise from the current tyre state
     ts = state["track_status"]
     pit_now = pit_loss * SC_PIT_FACTOR if ts == "SC" else pit_loss * VSC_PIT_FACTOR if ts in ("VSC", "VSC_ENDING") else None
+    if ts == "RED":
+        pit_now = 0.0  # tyres may be changed for free while the race is suspended
+    # A teammate already in the pit lane just ahead: this car would queue behind it.
+    mate = next((c for c in cars if c is not car and team and c.get("team") == team and not c["retired"]), None)
+    stack_wait = 0.0
+    if mate and mate.get("in_pit") and mate.get("gap_to_leader") is not None and car.get("gap_to_leader") is not None:
+        behind_mate = car["gap_to_leader"] - mate["gap_to_leader"]
+        if 0 <= behind_mate < STACK_SERVICE_S:
+            stack_wait = STACK_SERVICE_S - behind_mate
+    if stack_wait and ts != "RED":
+        pit_now = (pit_now if pit_now is not None else pit_loss) + stack_wait
     compound = car["compound"] if car["compound"] in model.compounds else None
     used = tuple(c for c in car.get("compounds_used", []) if c in DRY_COMPOUNDS)
     tstate = TyreState(lap=k, compound=compound, age=int(car["tyre_age"]), used=used, pit_cost_now=pit_now)
     ctx = RaceContext(total_laps=total, pit_loss=pit_loss, sc_rate=weekend.get("sc_rate", 0.01), vsc_rate=weekend.get("vsc_rate", 0.006),
-                      team=team, driver=driver, stop_penalty=weekend.get("stop_penalty", 0.0), fuel_wear=weekend.get("fuel_wear", 1.0), min_stint=2,
+                      team=team, driver=driver, stop_penalty=weekend.get("stop_penalty", 0.0), fuel_wear=FUEL_WEAR_FACTOR, min_stint=2,
                       two_compound_rule=not _ran_wets(car), tyre_sets=_live_sets(weekend, car))
     opt = Optimizer(model, ctx)
     plans = opt.candidates(tstate, max_stops=3, top=6)
@@ -400,6 +513,12 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
             action = "WINDOW_OPEN"
             headline = f"Pit window open — box by lap {hi} for {nxt_c.title()}s"
 
+    if ts == "RED":
+        if nxt is not None and nxt <= cur_lap:
+            action, headline = "BOX_NOW", f"Red flag: free tyre change — fit {nxt_c.title()}s for the restart"
+        else:
+            action, headline = "STAY_OUT", f"Red flag: keep the {car['compound'].title()}s for the restart"
+
     # 4b. conditions: wet tyres or a changing track override the dry maths
     reason = None
     xo = None
@@ -445,7 +564,8 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
     running = [c for c in cars if not c["retired"]]
     me_gap = car.get("gap_to_leader")
     rejoin = None
-    stop_cost = pit_now if pit_now is not None else pit_loss
+    penalty = float(car.get("penalty_s") or 0)  # a time penalty is served at the next stop
+    stop_cost = (pit_now if pit_now is not None else pit_loss) + penalty
     if me_gap is not None:
         proj = me_gap + stop_cost
         ahead_after = [c for c in running if c["driver"] != driver and c.get("gap_to_leader") is not None and c["laps_completed"] >= k - 1 and c["gap_to_leader"] < proj]
@@ -459,9 +579,15 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
             "ahead": car_ahead and {"driver": car_ahead["driver"], "gap": round(proj - car_ahead["gap_to_leader"], 1), "compound": car_ahead["compound"], "tyre_age": car_ahead["tyre_age"]},
             "behind": car_behind and {"driver": car_behind["driver"], "gap": round(car_behind["gap_to_leader"] - proj, 1), "compound": car_behind["compound"], "tyre_age": car_behind["tyre_age"]},
             "traffic": bool(car_ahead and proj - car_ahead["gap_to_leader"] < 1.5),
+            "free": bool(car.get("position") and pos <= car["position"]),  # no place lost
+            "penalty_s": penalty or None,
+            "stack_wait": round(stack_wait, 1) if stack_wait else None,
         }
 
     idx = next((i for i, c in enumerate(running) if c["driver"] == driver), None)
+    held_up = None
+    if idx and car.get("interval") is not None and car["interval"] <= HELD_UP_GAP and not car.get("in_pit"):
+        held_up = {"driver": running[idx - 1]["driver"], "gap": round(float(car["interval"]), 2)}
     threats = []
     if idx is not None:
         new_c = nxt_c or "HARD"
@@ -469,14 +595,22 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
             b = running[idx + 1]
             gain = _undercut_gain(model, b.get("team"), b["compound"], b["tyre_age"], new_c, driver=b["driver"]) if b["compound"] in model.compounds else 0.0
             gap_b = b.get("interval")
+            covered = _covered_gain(model, b.get("team"), b["compound"], b["tyre_age"], new_c, driver=b["driver"]) if b["compound"] in model.compounds else 0.0
             threats.append({"type": "undercut_threat", "driver": b["driver"], "gap": gap_b, "gain": round(gain, 2),
-                            "live": bool(gap_b is not None and gain > gap_b and b["stops"] <= car["stops"])})
+                            "live": bool(gap_b is not None and gain > gap_b and b["stops"] <= car["stops"]),
+                            # if this car covers the lap after the rival stops
+                            "covered_gain": round(covered, 2),
+                            "live_if_covered": bool(gap_b is not None and covered > gap_b and b["stops"] <= car["stops"])})
         if idx > 0:
             a = running[idx - 1]
             gain = _undercut_gain(model, team, car["compound"], car["tyre_age"], new_c, driver=driver) if car["compound"] in model.compounds else 0.0
             gap_a = car.get("interval")
+            covered = _covered_gain(model, team, car["compound"], car["tyre_age"], new_c, driver=driver) if car["compound"] in model.compounds else 0.0
             threats.append({"type": "undercut_opportunity", "driver": a["driver"], "gap": gap_a, "gain": round(gain, 2),
-                            "live": bool(gap_a is not None and gain > gap_a and a["stops"] <= car["stops"])})
+                            "live": bool(gap_a is not None and gain > gap_a and a["stops"] <= car["stops"]),
+                            # if the car ahead covers the lap after this car stops
+                            "covered_gain": round(covered, 2),
+                            "live_if_covered": bool(gap_a is not None and covered > gap_a and a["stops"] <= car["stops"])})
 
     # rival predictions (cheap: deterministic, <=2 stops)
     rivals = []
@@ -523,6 +657,16 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
                 z = float(resid.mean() / (model.noise_sd / np.sqrt(3)))
                 drift = {"z": round(z, 2), "alert": abs(z) > 2.5,
                          "message": ("Recent laps slower than the model: tyre falling off" if z > 0 else "Recent laps faster than the model: tyre holding up") if abs(z) > 2.5 else "Lap times inside the model band"}
+                # Slow laps are not always wear: dirty air, or graining that clears.
+                res = times - offset - pred_o
+                notes = []
+                if z > 2.5 and held_up:
+                    notes.append(f"Within {held_up['gap']:.1f} s of {held_up['driver']}: part of the slowdown may be dirty air, not the tyre")
+                if z > 2.5 and car["tyre_age"] <= GRAINING_MAX_AGE:
+                    notes.append("Early in the stint: this can be graining, which often clears in a few laps")
+                if _graining_cleared(res, ages_o, band):
+                    notes.append("Pace came back after several slow laps: looks like graining clearing, not a worn tyre")
+                drift["notes"] = notes
         curve = {"compound": compound, "ages": ages.tolist(), "predicted": np.round(pred, 3).tolist(), "band": round(band, 3), "observed": obs_pts}
 
     return base | {
@@ -546,6 +690,7 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
         "model": {
             "pit_loss": round(pit_loss, 2),
             "pit_losses_observed": len(observed),
+            "fuel": fuel,
             "compounds": {c: {"deg": round(p.deg, 4), "deg_sd": round(p.deg_sd, 4), "offset": round(p.offset, 3)} for c, p in model.compounds.items()},
             "live_evidence": evidence,
             "car_deg": car_deg,
@@ -557,4 +702,6 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
         "race_sim": race_sim,
         "tyre_curve": curve,
         "drift": drift,
+        "held_up": held_up,
+        "track": track_temperature(state.get("weather") or {}),
     }

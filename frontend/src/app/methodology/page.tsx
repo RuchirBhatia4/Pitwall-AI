@@ -46,7 +46,7 @@ const TECH = [
 ];
 
 const LIMITS = [
-  "The race simulation picks the starting tyre far better than the physics optimiser and the stop count somewhat better; on compounds the two are level and the optimiser times the first stop slightly better (see the table). Rivals do not react to each other's green-flag stops (no undercut-covering game), and a second round of best responses did not improve the backtest.",
+  "The race simulation picks the starting tyre far better than the physics optimiser and the stop count somewhat better; on compounds the two are level and the optimiser times the first stop slightly better (see the table). Rivals do not react to each other's green-flag stops (no undercut-covering game), and a second round of best responses did not improve the backtest. Live, the undercut card shows what an undercut still gains if the rival covers the next lap, but the race simulation keeps rivals on their own plans.",
   "The race simulation does not model retirements, lapped-car traffic or DRS trains beyond the overtaking model; overtaking depends only on pace difference and the circuit.",
   "Which compounds a driver uses is the weakest prediction (about one in three right for the race simulation, like the naive baseline; 40% for the hybrid). Most 2026 races were run on one compound pair by nearly the whole field, but neither the pre-race physics, the circuit's 2024–25 strategies nor Pirelli's nominations tell which pair; the soft's race pace varies from 0.9 s/lap faster than the medium to 0.7 s/lap slower between races.",
   "Pre-race prediction of team behaviour is only modestly better than a naive baseline on some metrics and worse on others (see the table) — e.g. the starting tyre is still predicted less accurately than 'start on what most teams started on'. Team orders, incidents and strategic covering are not observable in public timing data.",
@@ -54,6 +54,8 @@ const LIMITS = [
   "Wet races, and cars that raced intermediates in a dry race, are excluded from dry-strategy metrics; intermediate/wet tyre strategy is not modelled.",
   "Tyre wear is linear-plus-quadratic with a fuel-load interaction; real thermal degradation and cliffs are approximated through stint-life limits. Wear is linear within a stint, so a fresh-tyre peak in the first laps of a stint is not modelled separately.",
   "Sepang (Round 16) has no recent F1 data; pit loss falls back to the 2026 season median until stops are observed live.",
+  "2026 energy management (harvesting and deploying battery energy) is not in any public timing feed, so it shows up only indirectly, through lap times and the overtaking model.",
+  "Track temperature, the rain forecast, dirty air and graining are shown next to the live call but do not change it: there is no forecast history to test a forecast-driven call on, and live wear updates already absorb a hotter track once laps are run on it.",
 ];
 
 export default function Methodology() {

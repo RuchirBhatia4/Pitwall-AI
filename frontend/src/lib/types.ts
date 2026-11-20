@@ -331,7 +331,7 @@ export interface RaceState {
   updated_at: string;
   cars: CarState[];
   race_control: { lap: number | null; category: string; message: string; flag: string | null }[];
-  weather: { track_temp?: number | null; air_temp?: number | null; rainfall?: number | boolean; rain_laps?: number[] };
+  weather: { track_temp?: number | null; air_temp?: number | null; rainfall?: number | boolean; rain_laps?: number[]; track_temp_start?: number | null };
   /** F1 live timing only: the session on air; `waiting` while it is not yet the race. */
   session?: { name: string | null; type: string | null; status: string | null; waiting: boolean };
 }
@@ -387,6 +387,8 @@ export interface Analysis {
       current_stint_laps?: number;
     } | null;
     stop_penalty: number;
+    /** Lap time gained per lap from fuel burn and track evolution; measured live once cars have stopped. */
+    fuel?: { prior: number; observed: number | null; se: number | null; posterior: number; cars: number };
   };
   rejoin?: {
     position: number;
@@ -394,12 +396,39 @@ export interface Analysis {
     ahead: { driver: string; gap: number; compound: string; tyre_age: number } | null;
     behind: { driver: string; gap: number; compound: string; tyre_age: number } | null;
     traffic: boolean;
+    /** Rejoins without losing a place. */
+    free?: boolean;
+    /** Time penalty served at this stop (s). */
+    penalty_s?: number | null;
+    /** Extra wait behind a teammate already in the pit box (s). */
+    stack_wait?: number | null;
   } | null;
-  threats?: { type: "undercut_threat" | "undercut_opportunity"; driver: string; gap: number | null; gain: number; live: boolean }[];
+  threats?: {
+    type: "undercut_threat" | "undercut_opportunity";
+    driver: string;
+    gap: number | null;
+    gain: number;
+    live: boolean;
+    /** Gain left if the other car pits the very next lap (warm-ups cancel). */
+    covered_gain?: number;
+    live_if_covered?: boolean;
+  }[];
   rivals?: { driver: string; position: number | null; compound: string; tyre_age: number; next_stop: number | null; next_compound: string | null; plan: string }[];
   race_sim?: { sims: number; position_now: number | null; options: SimOption[]; error?: undefined } | { error: string; options?: undefined } | null;
   tyre_curve?: { compound: string; ages: number[]; predicted: number[]; band: number; observed: { age: number; delta: number }[] } | null;
-  drift?: { z: number; alert: boolean; message: string } | null;
+  drift?: { z: number; alert: boolean; message: string; notes?: string[] } | null;
+  /** Within ~1 s of the car ahead: lap times include dirty air. */
+  held_up?: { driver: string; gap: number } | null;
+  track?: { temp: number; start: number | null; change: number | null; note: string | null } | null;
+}
+
+export interface RainForecast {
+  /** % chance of rain at the circuit in the next hour, and in the hour after */
+  next_hour: number;
+  hour_after: number;
+  mm_2h: number;
+  from: string;
+  source: string;
 }
 
 export interface LiveStatus {

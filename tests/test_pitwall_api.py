@@ -3,14 +3,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
 from src.api.main import app
+from src.pitwall import api
 
 SEASON = Path(__file__).resolve().parents[1] / "data" / "season" / "2026" / "season.json"
 pytestmark = pytest.mark.skipif(not SEASON.exists(), reason="run python -m src.pitwall.build_season first")
 client = TestClient(app)
+
+
+@pytest.fixture
+def after_mexico(monkeypatch):
+    """The day after R19: the next round (R20) has no rNN.json until its practice."""
+    monkeypatch.setattr(api, "_now", lambda: pd.Timestamp("2026-11-02 12:00"))
 
 
 def test_season_lists_rounds_and_backtest():
@@ -49,13 +57,66 @@ def test_manual_live_call_under_safety_car():
     assert j["analysis"]["plans"]
 
 
-def test_chat_engine_mode_answers_from_tools(monkeypatch):
+def test_default_round_falls_back_to_latest_built_round(tmp_path, monkeypatch):
+    for rnd in (1, 2, 3):
+        (tmp_path / f"r{rnd:02d}.json").write_text("{}")
+    monkeypatch.setattr(api, "DATA", tmp_path)
+    assert api.default_round({"live_round": None, "next_round": 3}) == 3
+    assert api.default_round({"live_round": 2, "next_round": 2}) == 2
+    assert api.default_round({"live_round": None, "next_round": 4}) == 3  # R4 not built until its practice
+    assert api.default_round({"live_round": None, "next_round": None}) == 3  # season over
+
+
+def test_chat_engine_mode_answers_from_tools(monkeypatch, after_mexico):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
     monkeypatch.delenv("PITWALL_USE_LLM", raising=False)
     j = client.post("/api/chat", json={"messages": [{"role": "user", "content": "When should Verstappen pit tonight?"}]}).json()
     assert "driver_strategy" in j["tools_used"]
     assert "Verstappen" in j["reply"]
+
+
+def test_chat_never_fails_on_a_round_that_is_not_built(monkeypatch, after_mexico):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("PITWALL_USE_LLM", raising=False)
+    for q, ctx in (("What strategy will they run in Qatar?", {}), ("Best plan for Verstappen?", {"round": 23}), ("Who wins in Abu Dhabi?", {"round": 22})):
+        j = client.post("/api/chat", json={"messages": [{"role": "user", "content": q}], "context": ctx}).json()
+        assert "couldn't answer" not in j["reply"], j["reply"]
+        assert "is built once its practice sessions have run" in j["reply"]
+
+
+def test_chat_live_answers_use_the_race_feed_without_connecting(monkeypatch):
+    # During a race a visitor can ask the chat without opening the Live pit wall page.
+    from src.pitwall import chat
+    from src.pitwall.live_sources import ReplaySource
+
+    st = ReplaySource(19).state(30) | {"source": "signalr", "session": {"name": "Race", "type": "Race", "waiting": False}}
+    feed = type("Feed", (), {"state": lambda self: st})()
+    monkeypatch.setattr(chat, "_season", lambda: {"live_round": 19, "next_round": 19, "rounds": []})
+    monkeypatch.setattr(api.LIVE, "_feed", lambda kind, rnd, no_auth=False: feed)
+    monkeypatch.setattr("src.pitwall.forecast.rain_forecast", lambda loc: None)
+    chat._SESSION.set("visitor-not-connected-0001")
+    race = chat.tool_live_race()
+    assert race["lap"] == st["lap"] and len(race["cars"]) == len(st["cars"])
+    call = chat.tool_live_call(st["cars"][0]["driver"])
+    assert call["call"]["action"] and call["position"] == st["cars"][0]["position"]
+
+
+def test_ai_mode_is_capped_per_visitor_and_per_hour(monkeypatch):
+    from src.pitwall import chat
+    monkeypatch.setattr(chat, "_llm_calls", {})
+    monkeypatch.setattr(chat, "LLM_PER_VISITOR", 2)
+    monkeypatch.setattr(chat, "LLM_PER_HOUR", 3)
+    assert chat._llm_allowed("a") and chat._llm_allowed("a") and not chat._llm_allowed("a")
+    assert chat._llm_allowed("b") and not chat._llm_allowed("c")
+
+
+def test_chat_finds_races_by_nickname_and_without_accents():
+    from src.pitwall.chat import _find_round
+    assert _find_round("How did Interlagos go?", {})[0] == 20
+    assert _find_round("sao paulo strategies", {})[0] == 20
+    assert _find_round("Bahrain one-stop?", {})[0] == 16
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +153,7 @@ def test_live_timing_only_for_current_round():
     assert client.get("/api/live/status", headers=A).json()["round"] == 15
 
 
-def test_chat_live_answer_follows_its_own_session(monkeypatch):
+def test_chat_live_answer_follows_its_own_session(monkeypatch, after_mexico):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
     client.post("/api/live/connect", headers=A, json={"source": "replay", "round": 15, "seconds_per_lap": 60, "start_lap": 10})

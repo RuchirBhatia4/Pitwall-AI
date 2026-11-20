@@ -25,6 +25,7 @@ import ast
 import json
 import logging
 import os
+import re
 import threading
 import time
 import zlib
@@ -42,6 +43,21 @@ from src.pitwall.weekend import YEAR, event_row
 log = logging.getLogger("pitwall.live")
 STATUS_MAP = {"1": "GREEN", "2": "YELLOW", "4": "SC", "5": "RED", "6": "VSC", "7": "VSC_ENDING"}
 WAITING_RESUBSCRIBE_S = 300  # while F1 live timing still shows an earlier session, resubscribe this often
+_PENALTY_RE = re.compile(r"(\d+) SECOND TIME PENALTY FOR CAR (\d+)")
+_PENALTY_GONE = ("SERVED", "REVOKED", "RESCINDED", "CANCELLED", "WITHDRAWN")
+
+
+def outstanding_penalties(messages) -> dict[str, int]:
+    """Time penalties (s) per car number not yet served, from race control messages in order."""
+    out: dict[str, int] = {}
+    for msg in messages:
+        text = str(msg or "").upper()
+        m = _PENALTY_RE.search(text)
+        if not m:
+            continue
+        secs, num = int(m.group(1)), m.group(2)
+        out[num] = max(0, out.get(num, 0) + (-secs if any(w in text for w in _PENALTY_GONE) else secs))
+    return {k: v for k, v in out.items() if v}
 
 
 def _now() -> str:
@@ -201,6 +217,9 @@ class ReplaySource:
         rc = []
         if self.rcm is not None and len(self.rcm):
             m = self.rcm[self.rcm["Lap"].fillna(0) <= lap]
+            pens = outstanding_penalties(m["Message"])
+            for c in cars:
+                c["penalty_s"] = pens.get(str(c["number"]), 0)
             for _, r in m.tail(12).iterrows():
                 rc.append({"lap": int(r["Lap"]) if pd.notna(r["Lap"]) else None, "category": str(r["Category"]), "message": str(r["Message"]), "flag": None if pd.isna(r.get("Flag")) else str(r.get("Flag"))})
         ev = event_row(self.round)
@@ -227,6 +246,7 @@ class ReplaySource:
             return {}
         w = prior.iloc[-1]
         return {"rainfall": bool(w["Rainfall"]), "track_temp": float(w["TrackTemp"]), "air_temp": float(w["AirTemp"]),
+                "track_temp_start": float(prior.iloc[0]["TrackTemp"]),
                 "rain_laps": sorted(l for l in self.rain_laps if l <= lap)}
 
 
@@ -445,7 +465,8 @@ def build_openf1_state(rnd, drivers, laps, stints, pits, rc, intervals, weather,
             {"lap": m.get("lap_number"), "category": m.get("category"), "message": m.get("message"), "flag": m.get("flag")}
             for m in sorted(rc, key=lambda m: m.get("date") or "", reverse=True)[:12]
         ],
-        "weather": {"track_temp": wx.get("track_temperature"), "air_temp": wx.get("air_temperature"), "rainfall": wx.get("rainfall")},
+        "weather": {"track_temp": wx.get("track_temperature"), "air_temp": wx.get("air_temperature"), "rainfall": wx.get("rainfall"),
+                    "track_temp_start": weather[0].get("track_temperature") if weather else None},
     }
 
 
@@ -503,6 +524,7 @@ class TimingReducer:
         self.lap_history: dict[str, list[dict]] = {}
         self.neutral_laps: set[int] = set()
         self.rain_laps: set[int] = set()
+        self.track_temp_start: float | None = None
         self.session_changed = False
         self.lock = threading.Lock()
 
@@ -531,6 +553,7 @@ class TimingReducer:
                     self.lap_history.clear()
                     self.neutral_laps.clear()
                     self.rain_laps.clear()
+                    self.track_temp_start = None
                     self.session_changed = True
             if topic == "TimingData" and isinstance(payload, dict):
                 self._record_laps(payload)
@@ -605,8 +628,10 @@ class TimingReducer:
         w = self.data.get("WeatherData") or {}
         if not w and not self.rain_laps:
             return {}
+        if self.track_temp_start is None:
+            self.track_temp_start = _num(w.get("TrackTemp"))
         return {"rainfall": _truthy(w.get("Rainfall")), "track_temp": _num(w.get("TrackTemp")), "air_temp": _num(w.get("AirTemp")),
-                "rain_laps": sorted(self.rain_laps)}
+                "track_temp_start": self.track_temp_start, "rain_laps": sorted(self.rain_laps)}
 
     def state(self, rnd: int, total_laps: int | None) -> dict:
         with self.lock:
@@ -651,6 +676,9 @@ class TimingReducer:
                     "laps": list(self.lap_history.get(num, [])),
                 })
             msgs = (self.data.get("RaceControlMessages", {}) or {}).get("Messages", [])
+            pens = outstanding_penalties(m.get("Message") for m in msgs if isinstance(m, dict))
+            for c in cars:
+                c["penalty_s"] = pens.get(c["number"], 0)
             si = self.data.get("SessionInfo") or {}
             session = {"name": si.get("Name"), "type": si.get("Type"), "status": (self.data.get("SessionStatus") or {}).get("Status"),
                        "waiting": self.waiting()}

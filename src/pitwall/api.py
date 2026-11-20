@@ -15,6 +15,7 @@ import pandas as pd
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from src.pitwall.forecast import rain_forecast
 from src.pitwall.live_engine import analyse
 from src.pitwall.optimizer import Optimizer, RaceContext, TyreState
 from src.pitwall.season import SEASON_DIR
@@ -45,12 +46,27 @@ def weekend_for(rnd: int) -> dict:
     return data["weekend"] | {"race_forecast": data.get("race_forecast")}
 
 
+def default_round(season: dict) -> int | None:
+    """The round to use when none was asked for: the live or next race once its
+    rNN.json is built (after its practice sessions), else the latest round that
+    is built."""
+    rnd = season.get("live_round") or season.get("next_round")
+    if rnd is not None and (DATA / f"r{rnd:02d}.json").exists():
+        return rnd
+    built = [int(p.stem[1:]) for p in DATA.glob("r[0-9][0-9].json")]
+    return max(built, default=rnd)
+
+
+def _now() -> pd.Timestamp:
+    return pd.Timestamp.now(tz="UTC").tz_localize(None)
+
+
 def _season() -> dict:
     path = DATA / "season.json"
     if not path.exists():
         raise HTTPException(503, "Season not built yet: run python -m src.pitwall.build_season")
     season = json.loads(path.read_text())
-    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    now = _now()
     live_round, next_round = None, None
     for r in season["rounds"]:
         start = pd.Timestamp(r["race_start_utc"]) if r.get("race_start_utc") not in (None, "NaT") else None
@@ -362,6 +378,8 @@ def live_state(driver: str | None = None, x_pitwall_session: str | None = Header
     sid = session_id(x_pitwall_session)
     state = LIVE.state(sid)
     out = {"state": _slim(state), "status": LIVE.status(sid)}
+    if state.get("source") in ("signalr", "openf1") and not (state.get("session") or {}).get("waiting"):
+        out["forecast"] = rain_forecast(state.get("location"))
     if driver:
         out["analysis"] = shared_analysis(state, driver.upper())
     return out

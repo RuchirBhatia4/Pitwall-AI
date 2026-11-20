@@ -394,9 +394,7 @@ def live_race_sim(state: dict, weekend: dict, model: TyreModel, ctx: RaceContext
     gaps = {c["driver"]: float(c["gap_to_leader"]) for c in running}
     tyres = {c["driver"]: (c["compound"], int(c["tyre_age"])) for c in running}
     neutral = {"SC": 2, "VSC": 1, "VSC_ENDING": 1}.get(state["track_status"], 0)
-    # Same wear-vs-fuel setting as the validated pre-race simulation.
-    sim_ctx = RaceContext(**{**ctx.__dict__, "fuel_wear": FUEL_WEAR_FACTOR})
-    sim = RaceSim(model, sim_ctx, [{"driver": c["driver"], "team": c.get("team"), "tyre_sets": _live_sets(weekend, c)} for c in running], params, sims=LIVE_SIMS,
+    sim = RaceSim(model, ctx, [{"driver": c["driver"], "team": c.get("team"), "tyre_sets": _live_sets(weekend, c)} for c in running], params, sims=LIVE_SIMS,
                   start_lap=k, gaps=gaps, tyres=tyres, neutral_now=neutral)
     field = {c["driver"]: rival_plans.get(c["driver"], Plan([c["compound"]], [])) for c in running}
     ranked = sim.best_response(car["driver"], [Plan.of(p) for p in plans], field)
@@ -465,7 +463,7 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
     used = tuple(c for c in car.get("compounds_used", []) if c in DRY_COMPOUNDS)
     tstate = TyreState(lap=k, compound=compound, age=int(car["tyre_age"]), used=used, pit_cost_now=pit_now)
     ctx = RaceContext(total_laps=total, pit_loss=pit_loss, sc_rate=weekend.get("sc_rate", 0.01), vsc_rate=weekend.get("vsc_rate", 0.006),
-                      team=team, driver=driver, stop_penalty=weekend.get("stop_penalty", 0.0), fuel_wear=weekend.get("fuel_wear", 1.0), min_stint=2,
+                      team=team, driver=driver, stop_penalty=weekend.get("stop_penalty", 0.0), fuel_wear=FUEL_WEAR_FACTOR, min_stint=2,
                       two_compound_rule=not _ran_wets(car), tyre_sets=_live_sets(weekend, car))
     opt = Optimizer(model, ctx)
     plans = opt.candidates(tstate, max_stops=3, top=6)

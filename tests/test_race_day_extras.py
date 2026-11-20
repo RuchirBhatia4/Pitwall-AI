@@ -188,3 +188,11 @@ def test_live_fuel_keeps_the_pre_race_rate_until_cars_have_stopped():
     cars = _synthetic_cars(fuel=0.030, deg=0.04, stop_laps=[20] * (FUEL_MIN_CARS - 1) + [60] * 6)
     f = live_fuel(cars, prior)
     assert f["observed"] is None and f["posterior"] == prior.fuel_per_lap
+
+
+def test_live_wear_ignores_the_tuned_fuel_setting(austin):
+    # 2.0, from matching team choices, doubled wear and pulled first stops ~10 laps forward
+    src, w = austin
+    st, car = _state(src, 12)
+    calm, tuned = (analyse(st, w | {"fuel_wear": fw}, car["driver"], sims=40)["plans"] for fw in (0.25, 2.0))
+    assert calm == tuned

@@ -86,6 +86,23 @@ def test_chat_never_fails_on_a_round_that_is_not_built(monkeypatch, after_mexico
         assert "is built once its practice sessions have run" in j["reply"]
 
 
+def test_chat_live_answers_use_the_race_feed_without_connecting(monkeypatch):
+    # During a race a visitor can ask the chat without opening the Live pit wall page.
+    from src.pitwall import chat
+    from src.pitwall.live_sources import ReplaySource
+
+    st = ReplaySource(19).state(30) | {"source": "signalr", "session": {"name": "Race", "type": "Race", "waiting": False}}
+    feed = type("Feed", (), {"state": lambda self: st})()
+    monkeypatch.setattr(chat, "_season", lambda: {"live_round": 19, "next_round": 19, "rounds": []})
+    monkeypatch.setattr(api.LIVE, "_feed", lambda kind, rnd, no_auth=False: feed)
+    monkeypatch.setattr("src.pitwall.forecast.rain_forecast", lambda loc: None)
+    chat._SESSION.set("visitor-not-connected-0001")
+    race = chat.tool_live_race()
+    assert race["lap"] == st["lap"] and len(race["cars"]) == len(st["cars"])
+    call = chat.tool_live_call(st["cars"][0]["driver"])
+    assert call["call"]["action"] and call["position"] == st["cars"][0]["position"]
+
+
 def test_chat_finds_races_by_nickname_and_without_accents():
     from src.pitwall.chat import _find_round
     assert _find_round("How did Interlagos go?", {})[0] == 20

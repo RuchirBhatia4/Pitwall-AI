@@ -36,7 +36,7 @@ Ground every number you state in a tool result from this conversation: pit laps,
 How the engine works, so you can explain it: a lap-time model (compound offset + wear per lap of tyre age, fuel-load interaction, fuel burn) is fitted per weekend from earlier 2026 races plus that weekend's practice long runs, combined with Bayesian updating; strategies are optimised exactly by dynamic programming; risk comes from Monte Carlo over Safety Cars / VSCs and parameter uncertainty. "P(best)" is the share of simulated races in which a plan was fastest; "expected regret" is the average time lost against the best plan in the same simulated race.
 
 Style: answer like a race engineer on the radio when the question is about a decision (lead with the call), and like an analyst when it is about the model. Keep answers short (under ~150 words unless asked for detail), use driver three-letter codes, compound names (Soft/Medium/Hard) and lap numbers. Be candid about uncertainty and about the backtest's limits.
-Round 16, the Bahrain Grand Prix held at Sepang (Kuala Lumpur), is the current race weekend."""
+During a race, use live_race for the running order, gaps, tyres, flags and race control, and live_call for one driver's pit call."""
 
 
 # ---------------------------------------------------------------------------
@@ -201,24 +201,58 @@ def tool_safety_car_whatif(round: int, driver: str, sc_lap: int) -> dict:
     }
 
 
-def tool_live_call(driver: str) -> dict:
-    from src.pitwall.api import LIVE, weekend_for
-    from src.pitwall.live_engine import analyse
+def _live_state() -> tuple[dict | None, str | None]:
+    """The live state this visitor sees: their own tracker if they connected one,
+    else the shared F1 live-timing feed while a race is on air."""
+    from src.pitwall.api import LIVE
 
     sid = _SESSION.get()
-    if LIVE.session(sid).kind is None:
-        return {"error": "The live tracker is not connected. Connect a source on the Live pit wall page first."}
-    st = LIVE.state(sid)
+    if LIVE.session(sid).kind is not None:
+        return LIVE.state(sid), None
+    live = _season().get("live_round")
+    if live is None:
+        return None, "No race is on air right now. Connect a source (or a replay) on the Live pit wall page to ask about one."
+    st = LIVE._feed("signalr", live).state()
+    if (st.get("session") or {}).get("waiting"):
+        return None, f"F1 live timing is still carrying {st['session'].get('name') or 'the previous session'}; the race feed has not started yet."
+    return st, None
+
+
+def tool_live_race() -> dict:
+    from src.pitwall.forecast import rain_forecast
+
+    st, err = _live_state()
+    if err:
+        return {"error": err}
+    cars = [{"position": c.get("position"), "driver": c["driver"], "team": c.get("team"), "gap_to_leader_s": c.get("gap_to_leader"), "interval_s": c.get("interval"),
+             "tyre": c.get("compound"), "tyre_age_laps": c.get("tyre_age"), "stops": c.get("stops"), "in_pit": c.get("in_pit"),
+             "retired": c.get("retired"), "penalty_s": c.get("penalty_s") or None} for c in st["cars"]]
+    out = {"source": st.get("source"), "round": st["round"], "event": st.get("event"), "lap": st.get("lap"), "total_laps": st.get("total_laps"),
+           "track_status": st.get("track_status"), "cars": cars, "race_control": (st.get("race_control") or [])[:8], "weather": st.get("weather")}
+    if st.get("source") in ("signalr", "openf1"):
+        out["rain_next_2h"] = rain_forecast(st.get("location"))
+    return out
+
+
+def tool_live_call(driver: str) -> dict:
+    from src.pitwall.api import shared_analysis
+
+    st, err = _live_state()
+    if err:
+        return {"error": err}
     code = driver.strip().upper()
-    if not any(c["driver"] == code for c in st["cars"]):
-        surname = {c["driver"]: c["driver"] for c in st["cars"]}
-        return {"error": f"{driver} not found in live session; drivers: {', '.join(surname)}"}
-    a = analyse(st, weekend_for(st["round"]), code, sims=200)
+    by_name = {c["driver"]: c["driver"] for c in st["cars"]}
+    if code not in by_name:
+        return {"error": f"{driver} not found in the live session; drivers: {', '.join(by_name)}"}
+    a = shared_analysis(st, code)
+    if "call" not in a or "car" not in a:
+        return {"error": a.get("error") or "no call for this car"}
     return {
         "source": st["source"], "lap": a.get("lap"), "total_laps": a.get("total_laps"), "track_status": a.get("track_status"),
         "position": a["car"]["position"], "tyre": {"compound": a["car"]["compound"], "age": a["car"]["tyre_age"]},
         "call": a["call"], "rejoin_if_box_now": a.get("rejoin"), "threats": a.get("threats"),
         "top_plans": [_plan_summary(p) for p in (a.get("plans") or [])[:3]], "drift": a.get("drift"),
+        "race_simulation": {"sims": a["race_sim"]["sims"], "options": a["race_sim"]["options"][:4]} if (a.get("race_sim") or {}).get("options") else None,
     }
 
 
@@ -241,7 +275,9 @@ TOOLS: list[dict] = [
     {"name": "safety_car_whatif", "description": "If a Safety Car is deployed on a given lap, should the driver box? Assumes they followed their predicted plan until then.",
      "input_schema": {"type": "object", "properties": {"round": {"type": "integer"}, "driver": {"type": "string"}, "sc_lap": {"type": "integer"}},
                       "additionalProperties": False, "required": ["round", "driver", "sc_lap"]}},
-    {"name": "live_call", "description": "Current live pit-wall call for a driver (requires the live tracker to be connected): box/stay out, target lap, next tyre, rejoin position, undercut threats.",
+    {"name": "live_race", "description": "The live race right now: lap, track status (GREEN/SC/VSC/RED), every car's position, gap, interval, tyre and age, stops and penalties, recent race-control messages, weather and the rain chance for the next 2 hours. Uses the visitor's live tracker, or F1 live timing while a race is on air.",
+     "input_schema": {"type": "object", "properties": {}, "additionalProperties": False, "required": []}},
+    {"name": "live_call", "description": "Current live pit-wall call for a driver: box/stay out, target lap, next tyre, rejoin position, undercut threats, the top plans and the race simulation. Uses the visitor's live tracker, or F1 live timing while a race is on air.",
      "input_schema": {"type": "object", "properties": {"driver": {"type": "string"}}, "additionalProperties": False, "required": ["driver"]}},
     {"name": "backtest", "description": "Season walk-forward validation metrics of the prediction model vs a naive baseline.",
      "input_schema": {"type": "object", "properties": {}, "additionalProperties": False, "required": []}},
@@ -255,6 +291,7 @@ HANDLERS = {
     "driver_strategy": lambda a: tool_driver_strategy(int(a["round"]), a["driver"]),
     "evaluate_plan": lambda a: tool_evaluate_plan(int(a["round"]), a["driver"], a["compounds"], [int(x) for x in a["pit_laps"]]),
     "safety_car_whatif": lambda a: tool_safety_car_whatif(int(a["round"]), a["driver"], int(a["sc_lap"])),
+    "live_race": lambda a: tool_live_race(),
     "live_call": lambda a: tool_live_call(a["driver"]),
     "backtest": lambda a: tool_backtest(),
 }
@@ -280,13 +317,27 @@ def llm_enabled() -> bool:
     return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("PITWALL_USE_LLM") == "1")
 
 
+def _season_note() -> str:
+    from src.pitwall.api import default_round
+
+    s = _season()
+    rnd = s.get("live_round") or s.get("next_round")
+    ev = next((r for r in s["rounds"] if r["round"] == rnd), None)
+    if not ev:
+        return " The 2026 season is over."
+    when = "Its race is on air now." if s.get("live_round") else f"Race start (UTC): {ev.get('race_start_utc')}."
+    built = default_round(s)
+    data = "" if built == rnd else f" Its data is built after its practice sessions; the latest built round is R{built}."
+    return f" Current race weekend: R{rnd} {ev['event']} ({ev['location']}). {when}{data}"
+
+
 def chat_llm(messages: list[dict], context: dict) -> dict:
     import anthropic
 
     client = anthropic.Anthropic()
     convo: list[Any] = [{"role": m["role"], "content": m["content"]} for m in messages if m.get("content")]
     page = context.get("page") or "/"
-    note = f"\n\nThe user is on page {page}" + (f" (round {context['round']})." if context.get("round") else ".")
+    note = f"\n\nThe user is on page {page}" + (f" (round {context['round']})." if context.get("round") else ".") + _season_note()
     used: list[str] = []
     for _ in range(MAX_TOOL_ROUNDS):
         resp = client.beta.messages.create(
@@ -384,6 +435,9 @@ def _fmt_plan(p: dict | None) -> str:
     return f"{comps}, pit {laps}{extra}"
 
 
+LIVE_RACE_WORDS = ("leading", "leader", "running order", "positions", "race control", "track status", "right now", "happening", "who is winning", "who's winning")
+
+
 def chat_engine(messages: list[dict], context: dict) -> dict:
     q = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
     t = q.lower()
@@ -405,6 +459,16 @@ def chat_engine(messages: list[dict], context: dict) -> dict:
                 note += f"R{asked} {_load(asked)['event']} has no grid until qualifying, so this is from R{rnd} {_load(rnd)['event']}. "
             else:
                 rnd = asked
+        if not drv and any(k in t for k in LIVE_RACE_WORDS):
+            used.append("live_race")
+            r = tool_live_race()
+            if "error" in r:
+                return {"reply": r["error"], "tools_used": used, "mode": "engine (no LLM key configured)"}
+            order = " · ".join(f"{c['position']}. {c['driver']} {'+' + format(c['gap_to_leader_s'], '.1f') + ' ' if c.get('gap_to_leader_s') else ''}"
+                               f"{SHORT.get(c['tyre'] or '', '?')}{c['tyre_age_laps']}" for c in r["cars"][:10] if c.get("position") and not c.get("retired"))
+            rc = f" Latest from race control: {r['race_control'][0]['message']}." if r.get("race_control") else ""
+            return {"reply": f"{r['event']}, lap {r['lap']}/{r['total_laps']}, track {r['track_status']}. {order}.{rc}",
+                    "tools_used": used, "mode": "engine (no LLM key configured)"}
         if drv and ("safety car" in t or re.search(r"\bsc\b", t)):
             m = re.search(r"lap\s?(\d{1,2})", t)
             lap = int(m.group(1)) if m else 20

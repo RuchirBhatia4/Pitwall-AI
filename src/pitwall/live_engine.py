@@ -79,6 +79,7 @@ FUEL_SKIP_LAPS = 2  # first clean laps of each set left out (drivers push on fre
 FUEL_SE_SCALE = 3.0  # widens the car-clustered error to what replays show it to be
 FUEL_SE_FLOOR = 0.003  # s/lap: a few clusters can make the clustered error collapse to ~0
 LIVE_SIMS = 80  # full-field race simulations per live update
+CLOSE_CALL_SIMS = 4  # when the two leading plans are within the noise, simulate up to this many times as many races
 LIVE_PACE_PRIOR_LAPS = 8.0  # clean laps before a car's live pace outweighs its pre-race estimate
 _sim_cache: dict[tuple, dict] = {}
 
@@ -473,7 +474,7 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
         plans = opt.candidates(tstate, max_stops=3, top=6)
     if not plans:
         return base | {"call": {"action": "NO_PLAN", "headline": "No legal plan found (check tyre data)"}}
-    opt.monte_carlo(plans, tstate, sims=sims)
+    opt.monte_carlo(plans, tstate, sims=sims, max_sims=sims * CLOSE_CALL_SIMS)
     best_det = plans[0].total
     plans.sort(key=lambda p: p.total + p.risk.get("expected_delta", 0) - best_det)
     best = plans[0]
@@ -677,6 +678,7 @@ def analyse(state: dict, weekend: dict, driver: str, sims: int = 300) -> dict:
             "next_compound": nxt_c,
             "window": best.windows[0] if best.windows else None,
             "confidence": confidence,
+            "simulated_races": getattr(opt, "sims_run", None),
             "margin_to_next": round(second.total - best.total, 2) if second else None,
             "box_now_cost": round(box_now_cost, 2) if box_now_cost is not None else None,
             # P(fastest plan from here has k more stops), over SC/VSC + wear uncertainty

@@ -49,7 +49,8 @@ function CallCard({ a }: { a: Analysis }) {
         <div className="label">Pit wall call · {a.driver} · lap {a.lap}/{a.total_laps}</div>
         {c.confidence != null && (
           <div className="text-xs text-text-2">
-            Best plan in <span className="font-semibold tabular text-text">{pct(c.confidence)}</span> of simulated races
+            Best plan in <span className="font-semibold tabular text-text">{pct(c.confidence)}</span> of{" "}
+            {c.simulated_races ? <span className="tabular">{c.simulated_races.toLocaleString()}</span> : null} simulated races
           </div>
         )}
       </div>

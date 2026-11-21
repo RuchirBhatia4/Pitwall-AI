@@ -209,3 +209,18 @@ def test_live_wear_ignores_the_tuned_fuel_setting(austin):
     st, car = _state(src, 12)
     calm, tuned = (analyse(st, w | {"fuel_wear": fw}, car["driver"], sims=40)["plans"] for fw in (0.25, 2.0))
     assert calm == tuned
+
+
+def test_session_timing_reads_practice_and_qualifying():
+    from src.pitwall.live_sources import TimingReducer, session_timing
+    r = TimingReducer()
+    r.apply("SessionInfo", {"Meeting": {"Name": "Las Vegas Grand Prix"}, "Name": "Qualifying", "Type": "Qualifying", "Key": 1})
+    r.apply("DriverList", {"63": {"Tla": "RUS", "TeamName": "Mercedes"}, "1": {"Tla": "VER", "TeamName": "Red Bull Racing"}})
+    r.apply("TimingData", {"Lines": {"63": {"Position": "2", "BestLapTime": {"Value": "1:33.456"}, "NumberOfLaps": 9, "TimeDiffToFastest": "+0.111"},
+                                     "1": {"Position": "1", "BestLapTime": {"Value": "1:33.345"}, "NumberOfLaps": 8, "KnockedOut": False}}})
+    r.apply("TimingAppData", {"Lines": {"1": {"Stints": [{"Compound": "SOFT", "TotalLaps": 3}]}}})
+    t = session_timing(r)
+    assert t["session"]["name"] == "Qualifying" and [c["driver"] for c in t["cars"]] == ["VER", "RUS"]
+    assert t["cars"][0]["best_lap"] == pytest.approx(93.345) and t["cars"][0]["tyre"] == "SOFT"
+    assert t["cars"][1]["gap_to_fastest"] == "+0.111"
+

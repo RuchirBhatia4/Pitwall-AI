@@ -705,6 +705,42 @@ class TimingReducer:
         }
 
 
+def session_timing(reducer: "TimingReducer") -> dict:
+    """Classification of whatever session F1 live timing carries (practice,
+    qualifying, sprint or race): best and last lap, laps run, tyre. The race
+    page reads state(); this answers questions about the other sessions."""
+    with reducer.lock:
+        dl = reducer.data.get("DriverList", {}) or {}
+        td = (reducer.data.get("TimingData", {}) or {}).get("Lines", {}) or {}
+        app = (reducer.data.get("TimingAppData", {}) or {}).get("Lines", {}) or {}
+        si = reducer.data.get("SessionInfo") or {}
+        cars = []
+        for num, info in dl.items():
+            if not isinstance(info, dict) or "Tla" not in info:
+                continue
+            t = td.get(num, {}) or {}
+            stints = (app.get(num) or {}).get("Stints") or []
+            if isinstance(stints, dict):
+                stints = [stints[k] for k in sorted(stints, key=int)]
+            cur = stints[-1] if stints else {}
+            cars.append({
+                "position": int(t["Position"]) if str(t.get("Position", "")).isdigit() else None,
+                "driver": info["Tla"], "team": info.get("TeamName", ""),
+                "best_lap": _lap_seconds((t.get("BestLapTime") or {}).get("Value")),
+                "last_lap": _lap_seconds((t.get("LastLapTime") or {}).get("Value")),
+                "gap_to_fastest": t.get("TimeDiffToFastest") or None,
+                "laps": int(t.get("NumberOfLaps") or 0),
+                "tyre": str(cur.get("Compound") or "UNKNOWN").upper(), "tyre_age": int(cur.get("TotalLaps") or 0),
+                "in_pit": bool(t.get("InPit")), "knocked_out": bool(t.get("KnockedOut")),
+            })
+        msgs = (reducer.data.get("RaceControlMessages", {}) or {}).get("Messages", [])
+        session = {"meeting": (si.get("Meeting") or {}).get("Name"), "name": si.get("Name"), "type": si.get("Type"),
+                   "status": (reducer.data.get("SessionStatus") or {}).get("Status")}
+        status = STATUS_MAP.get(str((reducer.data.get("TrackStatus") or {}).get("Status")), "GREEN")
+    return {"session": session, "track_status": status, "cars": sorted(cars, key=lambda c: c["position"] or 99),
+            "race_control": [m.get("Message") for m in msgs[-8:][::-1] if isinstance(m, dict)], "weather": reducer._weather()}
+
+
 class SignalRSource:
     """Connects to F1 live timing in a background thread (requires F1TV token)."""
 

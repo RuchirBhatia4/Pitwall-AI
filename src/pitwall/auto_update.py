@@ -10,7 +10,8 @@ A step is due when a session of a race weekend ended long enough ago for
 OpenF1 to publish it and the build has not taken it in yet
 (data/season/2026/updates.json). Practice and qualifying rebuild the weekend's
 pre-race page, the race adds its results, and one more rebuild a few hours
-before the start picks up grid penalties. `build` rebuilds only that round,
+before the start picks up grid penalties. Nothing is published while a session is
+on (see on_air). `build` rebuilds only that round,
 reading earlier rounds from their saved files, then checks the result before
 anything is published:
   * the session's data was there (OpenF1 can publish a session late; then the
@@ -43,6 +44,12 @@ GRID_REFRESH = timedelta(hours=3)
 GRID_STEP = "Grid"
 # Only weekends this recent are looked at (a late OpenF1 upload still gets in).
 LOOKBACK = timedelta(days=5)
+# Nothing is published while a session is on: a deploy restarts the server,
+# which drops the live feed and every visitor's live page. From 30 min before
+# the start; a race can run 3 h with a red flag.
+ON_AIR_BEFORE = timedelta(minutes=30)
+ON_AIR = {"Race": timedelta(hours=3), "Sprint": timedelta(hours=1, minutes=30)}
+ON_AIR_DEFAULT = timedelta(hours=1, minutes=30)
 
 
 def _now() -> datetime:
@@ -57,11 +64,23 @@ def _sessions(entry: dict) -> dict[str, datetime]:
     return {k: datetime.fromisoformat(v) for k, v in (entry.get("sessions") or {}).items() if v}
 
 
+def on_air(now: datetime, season: dict) -> str | None:
+    """The session being run now (or about to start), if any."""
+    for r in season["rounds"]:
+        for name, t in _sessions(r).items():
+            if t - ON_AIR_BEFORE <= now <= t + ON_AIR.get(name, ON_AIR_DEFAULT):
+                return f"R{r['round']} {name}"
+    return None
+
+
 def due(now: datetime | None = None) -> list[tuple[int, str]]:
     """(round, step) waiting to be built, oldest first. Steps are session names,
-    plus GRID_STEP for the pre-race grid refresh."""
+    plus GRID_STEP for the pre-race grid refresh. Nothing while a session is on."""
     now = now or _now()
     season = json.loads((OUT / "season.json").read_text())
+    if live := on_air(now, season):
+        print(f"{live} is on: holding until it ends", file=sys.stderr, flush=True)
+        return []
     done = _state()
     out = []
     for r in season["rounds"]:

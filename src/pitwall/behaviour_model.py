@@ -205,9 +205,14 @@ def likely_plan(row: dict, pred: dict, total_laps: int) -> Strategy | None:
     return None
 
 
-def main(after_round=None) -> None:
+def main(after_round=None, only: int | None = None) -> None:
     """after_round(data): optional final step per round (the race simulation,
-    which shortlists the strategies this model calls plausible)."""
+    which shortlists the strategies this model calls plausible).
+
+    only: rebuild just this round. Earlier rounds are still scored, to choose
+    its regularisation, but their files are left as saved: refitting them on
+    another machine changes their last digits (Linux vs macOS floating point)
+    and nothing else."""
     files = sorted(OUT_DIR.glob("r[0-9][0-9].json"))
     rounds = {int(f.stem[1:]): json.loads(f.read_text()) for f in files}
     rows = {r: build_rows(d) for r, d in rounds.items()}
@@ -217,15 +222,18 @@ def main(after_round=None) -> None:
         train = [x for r in sorted(rows) if r < rnd for x in rows[r] if "y_stops" in x]
         n_rounds = len({x["round"] for x in train})
         test = rows[rnd]
+        rebuild = only is None or rnd == only
         if n_rounds < MIN_TRAIN_ROUNDS or not test:  # too little history / pre-race build before qualifying
-            if after_round:
+            if after_round and rebuild:
                 after_round(data)
                 (OUT_DIR / f"r{rnd:02d}.json").write_text(json.dumps(data))
             continue
         strength = choose_strength(scores)
-        preds = _fit_predict(train, test, strength)
         if labelled := [x for x in test if "y_stops" in x]:
             scores.append(round_scores(train, labelled))  # used from the next round on
+        if not rebuild:
+            continue
+        preds = _fit_predict(train, test, strength)
         L = data["weekend"]["total_laps"]
         for row, p in zip(test, preds):
             plan = likely_plan(row, p, L)

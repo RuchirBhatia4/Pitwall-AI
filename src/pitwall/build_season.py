@@ -519,7 +519,7 @@ def main(only: int | None = None) -> None:
     # third: race simulation over each driver's plausible strategies.
     from src.pitwall import behaviour_model
 
-    behaviour_model.main(after_round=simulate_round)
+    behaviour_model.main(after_round=simulate_round, only=only)
 
 
 def write_index() -> None:

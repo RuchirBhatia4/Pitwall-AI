@@ -379,7 +379,8 @@ class Optimizer:
         return out
 
     # -- Monte Carlo risk -----------------------------------------------------
-    def monte_carlo(self, strategies: list[Strategy], state: TyreState | None = None, sims: int = 600, seed: int = 7) -> None:
+    def monte_carlo(self, strategies: list[Strategy], state: TyreState | None = None, sims: int = 600, seed: int = 7,
+                    max_sims: int | None = None) -> None:
         """Safety-car robustness with common random numbers across strategies.
 
         Each simulation draws SC / VSC periods from a per-lap hazard. A strategy
@@ -387,6 +388,11 @@ class Optimizer:
         window of its next planned stop (up to 10 laps early), it stops then.
         Degradation parameters are also resampled from their posterior sd, so
         the spread reflects both race events and model uncertainty.
+
+        max_sims: keep simulating, `sims` races at a time, while the two plans
+        that would lead (model time + expected regret) are within two standard
+        errors of each other, up to max_sims races: a close call gets more
+        simulated races before it is made, a clear one costs no more.
         """
         if not strategies:
             return
@@ -394,10 +400,13 @@ class Optimizer:
         rng = np.random.default_rng(seed)
         L, start = self.L, state.lap + 1
         base_P = self._pit_cost(state)
-        results = np.zeros((sims, len(strategies)))
+        target = sims
+        results = np.zeros((max(sims, max_sims or 0), len(strategies)))
+        totals = np.array([s.total for s in strategies])
         saved = {c: (p.deg, p.offset) for c, p in self.model.compounds.items()}
+        k = 0
         try:
-            for k in range(sims):
+            while k < target:
                 # Parameter uncertainty: one posterior draw per simulation.
                 for c, p in self.model.compounds.items():
                     d0, o0 = saved[c]
@@ -427,10 +436,16 @@ class Optimizer:
                     reacted = self.evaluate(s.sequence, self._react(s.pit_laps, starts, state), state, P)
                     # A pit wall only reacts if the reaction is feasible and helps.
                     results[k, j] = min(planned, reacted)
+                k += 1
+                if k == target and max_sims and target < max_sims and len(strategies) > 1 and not self._separated(results[:k], totals):
+                    target = min(target + sims, max_sims)
         finally:
             for c, p in self.model.compounds.items():
                 p.deg, p.offset = saved[c]
             self._fresh.clear()
+        sims = k
+        self.sims_run = k
+        results = results[:k]
         results = np.where(results >= INF / 2, np.nan, results)
         results = np.where(np.isnan(results), np.nanmax(results, axis=0, initial=0.0), results)
         # Regret: time lost vs the best of these plans *in the same simulated race*.
@@ -448,6 +463,20 @@ class Optimizer:
                 "cvar90": float(worst.mean()),
                 "win_probability": float((winners == j).mean()),
             }
+
+    @staticmethod
+    def _separated(results: np.ndarray, totals: np.ndarray) -> bool:
+        """Are the two leading plans more than two standard errors apart?"""
+        res = np.where(results >= INF / 2, np.nan, results)
+        if np.isnan(res).all(axis=0).any():
+            return True  # a plan that never finishes is not a contender
+        res = np.where(np.isnan(res), np.nanmax(res, axis=0), res)
+        regret = res - res.min(axis=1, keepdims=True)
+        score = totals + regret.mean(axis=0)
+        b, c = np.argsort(score)[:2]
+        diff = (regret[:, c] - regret[:, b]) + (totals[c] - totals[b])
+        se = diff.std(ddof=1) / np.sqrt(len(diff))
+        return bool(diff.mean() > 2 * se)
 
     def _react(self, pits: list[int], neutral_starts: list[int], state: TyreState) -> list[int]:
         pits = list(pits)

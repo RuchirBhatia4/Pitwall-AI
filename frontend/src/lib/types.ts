@@ -350,6 +350,7 @@ export interface Analysis {
     next_compound?: Compound | null;
     window?: [number, number] | null;
     confidence?: number | null;
+    simulated_races?: number | null;
     margin_to_next?: number | null;
     box_now_cost?: number | null;
     stop_probabilities?: Record<string, number>;

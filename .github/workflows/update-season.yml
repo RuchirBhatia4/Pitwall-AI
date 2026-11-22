@@ -37,7 +37,7 @@ jobs:
 
       - name: Install
         if: steps.due.outputs.waiting != 'none'
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt pytest==9.1.1  # pytest: the Tests step below
 
       - name: OpenF1 response cache
         if: steps.due.outputs.waiting != 'none'

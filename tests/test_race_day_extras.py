@@ -224,3 +224,17 @@ def test_session_timing_reads_practice_and_qualifying():
     assert t["cars"][0]["best_lap"] == pytest.approx(93.345) and t["cars"][0]["tyre"] == "SOFT"
     assert t["cars"][1]["gap_to_fastest"] == "+0.111"
 
+
+
+def test_safety_car_laps_are_counted_on_the_leaders_lap():
+    # The Safety Car comes out during race lap 3 (t=250 s). VER leads; SAR is a
+    # lap down, so his own lap 2 (t=205-310 s) runs under it too.
+    import pandas as pd
+
+    from src.pitwall.race_data import neutral_car_laps, neutralised_laps
+
+    rows = [("VER", lap, end, st) for lap, end, st in ((1, 100, "1"), (2, 200, "1"), (3, 300, "14"), (4, 400, "4"), (5, 500, "41"))]
+    rows += [("SAR", lap, end, st) for lap, end, st in ((1, 205, "1"), (2, 310, "14"), (3, 410, "4"), (4, 510, "41"))]
+    laps = pd.DataFrame(rows, columns=["driver", "lap", "lap_end", "track_status"])
+    assert neutralised_laps(laps)["sc"] == [3, 4, 5]  # as race control numbers it
+    assert neutral_car_laps(laps)["sc"] == [2, 3, 4, 5]  # SAR's lap 2 still stays out of his fits

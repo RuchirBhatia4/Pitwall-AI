@@ -16,7 +16,7 @@ import json
 
 import numpy as np
 
-from src.pitwall.race_data import load_session, measure_pit_loss, neutralised_laps, normalize_laps
+from src.pitwall.race_data import load_session, measure_pit_loss, neutral_car_laps, normalize_laps
 from src.pitwall.race_sim import fit_pass_model, pass_pairs
 from src.pitwall.season import SEASON_DIR, get_schedule
 from src.pitwall.tyre_model import fit_race_model
@@ -40,7 +40,7 @@ def race_summary(year: int, rnd: int) -> tuple[dict, np.ndarray] | None:
     laps = normalize_laps(session)
     if laps.empty:
         return None
-    neutral = neutralised_laps(laps)
+    neutral = neutral_car_laps(laps)  # Safety Car odds on cars' own laps, as in weekend.race_fit
     wet = laps["compound"].isin(["INTERMEDIATE", "WET"]).mean() > 0.15
     summary = {"year": year, "round": rnd, "laps": int(laps["lap"].max()), "wet": bool(wet),
                "sc_starts": _starts(neutral["sc"]), "vsc_starts": _starts(neutral["vsc"]), "pit_loss": measure_pit_loss(laps, neutral)}

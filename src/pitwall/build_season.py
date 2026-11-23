@@ -27,7 +27,7 @@ from scipy.stats import spearmanr
 
 from src.pitwall import track_history
 from src.pitwall.optimizer import SHORT, Optimizer, RaceContext, TyreState
-from src.pitwall.race_data import load_session, neutralised_laps, normalize_laps, race_overview
+from src.pitwall.race_data import load_session, neutral_car_laps, normalize_laps, race_overview
 from src.pitwall.race_sim import Plan, RaceSim, SimParams, candidate_plans, fit_pace_model, fit_pass_model, pass_pairs, race_pace
 from src.pitwall.season import SEASON_DIR, get_schedule
 from src.pitwall.tyre_model import TyreModel
@@ -205,7 +205,7 @@ def race_pairs(rnd: int):
         laps, neutral = saved["laps"], saved["neutral_laps"]
     else:
         laps = normalize_laps(load_session(YEAR, rnd, "Race"))
-        nl = neutralised_laps(laps)
+        nl = neutral_car_laps(laps)
         neutral = set(nl["sc"]) | set(nl["vsc"]) | set(nl["red"])
     return pass_pairs(laps, neutral, fit["model"])
 

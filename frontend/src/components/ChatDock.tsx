@@ -19,6 +19,45 @@ const SUGGESTIONS = [
   "What happens to Leclerc if there's a Safety Car on lap 20?",
 ];
 
+/** Bold and `code` inside one line of a reply. */
+function inline(text: string) {
+  return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, i) =>
+    part.length > 4 && part.startsWith("**") && part.endsWith("**") ? (
+      <strong key={i}>{part.slice(2, -2)}</strong>
+    ) : part.length > 2 && part.startsWith("`") && part.endsWith("`") ? (
+      <code key={i} className="font-mono text-[0.92em]">
+        {part.slice(1, -1)}
+      </code>
+    ) : (
+      part
+    ),
+  );
+}
+
+/** The light Markdown the AI mode writes (bold, `code`, bullets, headings), rendered as elements rather than raw asterisks. */
+function Reply({ text }: { text: string }) {
+  return (
+    <>
+      {text.split("\n").map((line, i) => {
+        if (!line.trim()) return <div key={i} className="h-2" />;
+        const bullet = /^\s*(?:[-*•]|\d+[.)])\s+/.exec(line);
+        const heading = /^#{1,6}\s+/.exec(line);
+        const body = inline(line.slice((bullet ?? heading)?.[0].length ?? 0));
+        if (bullet) {
+          const mark = /\d/.test(bullet[0]) ? bullet[0].trim() : "•";
+          return (
+            <div key={i} className="flex gap-1.5 pl-1">
+              <span className="shrink-0 text-text-3">{mark}</span>
+              <span>{body}</span>
+            </div>
+          );
+        }
+        return <div key={i}>{heading ? <strong>{body}</strong> : body}</div>;
+      })}
+    </>
+  );
+}
+
 /** "Ask the pit wall": a chat grounded in the strategy engine via tool calls. */
 export function ChatDock() {
   const [open, setOpen] = useState(false);
@@ -87,7 +126,7 @@ export function ChatDock() {
             {msgs.map((m, i) => (
               <div key={i} className={clsx("flex", m.role === "user" ? "justify-end" : "justify-start")}>
                 <div className={clsx("max-w-[88%] rounded-2xl px-3 py-2 whitespace-pre-wrap", m.role === "user" ? "bg-accent/90 text-on-accent" : "bg-surface-2 text-text")}>
-                  {m.content}
+                  {m.role === "assistant" ? <Reply text={m.content} /> : m.content}
                   {m.tools && m.tools.length > 0 && <div className="mt-1.5 text-[10px] text-text-3">engine calls: {m.tools.join(", ")}</div>}
                 </div>
               </div>

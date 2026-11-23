@@ -86,6 +86,47 @@ def test_chat_never_fails_on_a_round_that_is_not_built(monkeypatch, after_mexico
         assert "is built once its practice sessions have run" in j["reply"]
 
 
+def test_chat_explains_the_engine_without_an_llm(monkeypatch, after_mexico):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("PITWALL_USE_LLM", raising=False)
+    ask = lambda q: client.post("/api/chat", json={"messages": [{"role": "user", "content": q}]}).json()
+    for q, word in (("How does the tyre model work?", "stint"), ("What is an undercut?", "rejoin"), ("What can you do?", "Ask me"),
+                    ("How do you handle uncertainty?", "conformal")):
+        j = ask(q)
+        assert word in j["reply"] and not j["tools_used"], (q, j["reply"])
+    # a named race or driver still gets that race's or driver's answer
+    assert ask("What happened with the safety car at Monza?")["tools_used"] == ["race_summary"]
+    assert "driver_strategy" in ask("What is Verstappen's best strategy at Monza?")["tools_used"]
+
+
+def test_chat_says_when_no_race_is_on(monkeypatch, after_mexico):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("PITWALL_USE_LLM", raising=False)
+    j = client.post("/api/chat", headers={"X-Pitwall-Session": "visitor-eeee-5555"},
+                    json={"messages": [{"role": "user", "content": "Should Verstappen box now?"}]}).json()
+    assert j["reply"].startswith("No race is on air right now") and "pre-race plan" in j["reply"]
+
+
+def test_session_question_between_weekends_gives_the_latest_qualifying(monkeypatch, tmp_path, after_mexico):
+    # Between weekends the next round has no rNN.json, so no live feed, until its first practice.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("PITWALL_USE_LLM", raising=False)
+    from src.pitwall import chat
+
+    season = {**api._season(), "live_round": None, "next_round": 20}
+    for f in api.DATA.glob("r[01][0-9].json"):  # rounds 1-19
+        (tmp_path / f.name).symlink_to(f)
+    monkeypatch.setattr(api, "DATA", tmp_path)
+    monkeypatch.setattr(chat, "_season", lambda: season)
+    ask = lambda q: client.post("/api/chat", json={"messages": [{"role": "user", "content": q}]}).json()["reply"]
+    reply = ask("Who was fastest in qualifying?")
+    assert reply.startswith("No session timing yet: R20") and "Latest qualifying, Mexico City Grand Prix: 1. " in reply, reply
+    assert "first practice" in ask("Who topped FP1?")
+
+
 def test_chat_live_answers_use_the_race_feed_without_connecting(monkeypatch):
     # During a race a visitor can ask the chat without opening the Live pit wall page.
     from src.pitwall import chat

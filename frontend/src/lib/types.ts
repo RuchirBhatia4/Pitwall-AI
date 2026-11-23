@@ -245,6 +245,7 @@ export interface SeasonRound {
   available: boolean;
   status: string;
   race_start_utc: string;
+  sessions?: Record<string, string>; // session name -> start (UTC, "YYYY-MM-DD HH:MM:SS")
   seconds_to_start?: number;
   winner?: { driver: string; name: string; team: string; color: string } | null;
   total_laps?: number;

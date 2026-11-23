@@ -24,6 +24,8 @@ function RaceDayHero({ season }: { season: Season }) {
   const start = new Date(rnd.race_start_utc.replace(" ", "T") + "Z").getTime();
   const secsTo = (start - now) / 1000;
   const live = season.live_round === rnd.round;
+  // Until its first practice the next round has no page yet: show the latest one.
+  const latest = rnd.available ? null : [...season.rounds].reverse().find((r) => r.available);
   return (
     <div className="relative overflow-hidden card p-6 sm:p-8">
       <div className="grid-bg absolute inset-0 opacity-60 pointer-events-none" />
@@ -50,8 +52,8 @@ function RaceDayHero({ season }: { season: Season }) {
             <Link href="/live" className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 font-semibold text-on-accent hover:brightness-110">
               <Radio size={16} /> Open live pit wall
             </Link>
-            <Link href={`/race/${rnd.round}`} className="inline-flex items-center gap-2 rounded-lg border border-line-strong px-4 py-2.5 hover:bg-surface-2">
-              Pre-race strategy predictions <ArrowRight size={16} />
+            <Link href={`/race/${latest?.round ?? rnd.round}`} className="inline-flex items-center gap-2 rounded-lg border border-line-strong px-4 py-2.5 hover:bg-surface-2">
+              {latest ? `Latest race: ${latest.event}` : "Pre-race strategy predictions"} <ArrowRight size={16} />
             </Link>
           </div>
         </div>

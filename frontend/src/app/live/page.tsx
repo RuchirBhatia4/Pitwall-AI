@@ -493,11 +493,14 @@ export default function LivePage() {
   const defaultRound = season?.live_round ?? season?.next_round ?? null;
   const [round, setRound] = useState<number | null>(null);
   const rnd = round ?? defaultRound;
-  const { data: race } = useApi<RaceFile>(rnd ? `/api/races/${rnd}` : null);
+  // The race file (manual input, headline) of this round once it is built, else of the latest built round.
+  const builtRounds = useMemo(() => season?.rounds.filter((r) => r.available) ?? [], [season]);
+  const raceRound = builtRounds.some((r) => r.round === rnd) ? rnd : (builtRounds.at(-1)?.round ?? null);
+  const { data: race } = useApi<RaceFile>(raceRound ? `/api/races/${raceRound}` : null);
   const [sourceChoice, setSource] = useState<SourceKind | null>(null);
   // During a race weekend's race window default to the live feed, otherwise to a replay.
   const source: SourceKind = sourceChoice ?? (season?.live_round ? "signalr" : "replay");
-  const [replayRound, setReplayRound] = useState<number>(15);
+  const [replayChoice, setReplayRound] = useState<number | null>(null);
   const [speed, setSpeed] = useState(6);
   const [startLap, setStartLap] = useState(10);
   const [driverChoice, setDriver] = useState<string | null>(null);
@@ -521,7 +524,9 @@ export default function LivePage() {
   const opening = state?.cars?.find((c) => !c.retired && isMine(c.team))?.driver ?? state?.cars?.[0]?.driver ?? null;
   if (!driver && opening) setFirstCar(opening); // once: the selection must not follow position changes
 
-  const finishedRounds = useMemo(() => season?.rounds.filter((r) => r.status === "finished") ?? [], [season]);
+  // Replays need the round built (a race is added a few hours after the flag); the latest one by default.
+  const finishedRounds = useMemo(() => season?.rounds.filter((r) => r.status === "finished" && r.available) ?? [], [season]);
+  const replayRound = replayChoice ?? finishedRounds.at(-1)?.round ?? 15;
 
   const connect = async () => {
     setConnecting(true);

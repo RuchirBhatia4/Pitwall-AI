@@ -124,13 +124,30 @@ def normalize_laps(session) -> pd.DataFrame:
     return laps.sort_values(["driver", "lap"]).reset_index(drop=True)
 
 
-def neutralised_laps(laps: pd.DataFrame) -> dict[str, list[int]]:
-    """Laps run (at least partly) under Safety Car, VSC or red flag."""
-    by_lap = laps.groupby("lap")["track_status"].apply(lambda s: "".join(s))
+def _by_status(by_lap: pd.Series) -> dict[str, list[int]]:
     sc = sorted(int(lap) for lap, st in by_lap.items() if STATUS_SC in st)
     vsc = sorted(int(lap) for lap, st in by_lap.items() if any(code in st for code in STATUS_VSC))
     red = sorted(int(lap) for lap, st in by_lap.items() if STATUS_RED in st)
     return {"sc": sc, "vsc": vsc, "red": red}
+
+
+def neutralised_laps(laps: pd.DataFrame) -> dict[str, list[int]]:
+    """Race laps run (at least partly) under Safety Car, VSC or red flag. A race
+    lap is the leader's lap (the first car to complete it): the lap the race is
+    on, as race control numbers it. Counting every car's own lap numbers instead
+    started each period 1-3 laps early (a car two laps down runs its lap 17 while
+    the race is on lap 19) and split some VSCs in two."""
+    lead = laps.dropna(subset=["lap_end"]).sort_values("lap_end").drop_duplicates("lap", keep="first")
+    return _by_status(lead.set_index("lap")["track_status"].fillna("").astype(str))
+
+
+def neutral_car_laps(laps: pd.DataFrame) -> dict[str, list[int]]:
+    """Lap numbers on which any car ran (at least partly) under Safety Car, VSC
+    or red flag, on its own lap count. For leaving cars' laps out of tyre-wear,
+    pit-loss and overtaking fits: a lapped car's lap 17 can run under a Safety
+    Car that came out on race lap 19. The Safety Car odds also still count on
+    these (see weekend.race_fit); what a race shows uses neutralised_laps."""
+    return _by_status(laps.groupby("lap")["track_status"].apply(lambda s: "".join(s)))
 
 
 def _periods(laps_list: list[int]) -> list[tuple[int, int]]:
@@ -167,7 +184,7 @@ def stints_from_laps(laps: pd.DataFrame) -> pd.DataFrame:
     cols = ["driver", "stint", "compound", "start_lap", "end_lap", "laps", "age_start", "fresh", "red_flag"]
     if laps.empty:
         return pd.DataFrame(columns=cols)
-    red = set(neutralised_laps(laps)["red"])
+    red = set(neutral_car_laps(laps)["red"])
     rows = []
     for driver, dl in laps.groupby("driver", sort=True):
         mine: list[dict] = []
@@ -307,7 +324,7 @@ def race_overview(year: int, rnd: int) -> dict:
         "drivers": drivers,
         "stints": stint_map,
         "neutralised": {k: _periods(v) for k, v in neutral.items()},
-        "pit_loss": measure_pit_loss(laps, neutral),
+        "pit_loss": measure_pit_loss(laps, neutral_car_laps(laps)),
         "rain": rain,
         "track_temp": float(weather["TrackTemp"].median()) if weather is not None and len(weather) else None,
         "air_temp": float(weather["AirTemp"].median()) if weather is not None and len(weather) else None,

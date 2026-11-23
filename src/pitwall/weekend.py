@@ -21,7 +21,7 @@ from src.pitwall.race_data import (
     event_sessions,
     load_session,
     measure_pit_loss,
-    neutralised_laps,
+    neutral_car_laps,
     normalize_laps,
     qualifying_grid,
     stints_from_laps,
@@ -109,10 +109,14 @@ def race_fit(rnd: int) -> dict | None:
     laps = normalize_laps(session)
     if laps.empty:
         return None
-    neutral = neutralised_laps(laps)
+    neutral = neutral_car_laps(laps)
     wet = laps["compound"].isin(["INTERMEDIATE", "WET"]).mean() > 0.15
     model = None if wet else fit_race_model(laps, neutral)
     stints = stints_from_laps(laps)
+    # The Safety Car / VSC odds still count periods on cars' own laps. Counted on
+    # the leader's lap (neutralised_laps) the walk-forward backtest moved both ways
+    # (race-sim compounds 33.8% -> 36.2%, first-stop error 7.06 -> 7.65 laps), so the
+    # odds keep the old count until that is understood.
     neutral_starts = {k: sum(1 for i, lap in enumerate(v) if i == 0 or v[i - 1] != lap - 1) for k, v in neutral.items()}
     out = {
         "version": FIT_VERSION,

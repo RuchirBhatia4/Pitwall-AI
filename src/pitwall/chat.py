@@ -18,6 +18,7 @@ import re
 import threading
 import time
 import unicodedata
+from datetime import datetime
 from typing import Any
 
 from src.pitwall.optimizer import SHORT, Optimizer, RaceContext, TyreState
@@ -237,13 +238,18 @@ def tool_live_race() -> dict:
 
 def tool_live_session() -> dict:
     """Timing of the race weekend's session on air (or the last one run)."""
-    from src.pitwall.api import LIVE
+    from src.pitwall.api import DATA, LIVE
     from src.pitwall.live_sources import session_timing
 
     s = _season()
     rnd = s.get("live_round") or s.get("next_round")
     if rnd is None:
         return {"error": "The 2026 season is over."}
+    if not (DATA / f"r{rnd:02d}.json").exists():  # the feed needs the weekend's model, built after first practice
+        ev = next((r for r in s["rounds"] if r["round"] == rnd), {})
+        fp1 = (ev.get("sessions") or {}).get("Practice 1")
+        when = f" ({datetime.fromisoformat(fp1):%a %d %b %H:%M} UTC)" if fp1 else ""
+        return {"error": f"No session timing yet: R{rnd} {ev.get('event', '')} timing is available here once its first practice{when} has been processed, about two hours after it starts."}
     feed = LIVE._feed("signalr", rnd)
     reducer = getattr(feed.source, "reducer", None)
     for _ in range(16):  # a feed opened by this question takes a few seconds to send its snapshot
@@ -454,6 +460,19 @@ def _plain(s: str) -> str:
     return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().lower()
 
 
+def _round_named(text: str) -> int | None:
+    """The round a question names (race, place, country, nickname or 'round N'), if any."""
+    t = _plain(text)
+    for alias, loc in ROUND_ALIASES.items():
+        t = re.sub(rf"\b{alias}\b", loc, t)
+    for r in _season()["rounds"]:
+        keys = {_plain(r["location"]), _plain(r["event"]).replace(" grand prix", ""), _plain(r["country"])}
+        if any(k and re.search(rf"\b{re.escape(k)}\b", t) for k in keys):
+            return r["round"]
+    m = re.search(r"\b(?:round|r)\s?(\d{1,2})\b", t)
+    return int(m.group(1)) if m else None
+
+
 def _find_round(text: str, context: dict) -> tuple[int, str]:
     """The round a question is about, and a note when it had to fall back: a
     round is answerable only once its rNN.json is built (after its practice)."""
@@ -461,19 +480,9 @@ def _find_round(text: str, context: dict) -> tuple[int, str]:
 
     s = _season()
     current = default_round(s) or 16
-    t = _plain(text)
-    for alias, loc in ROUND_ALIASES.items():
-        t = re.sub(rf"\b{alias}\b", loc, t)
     rnd = None
-    if not any(k in t for k in ("tonight", "today", "this race", "live")):
-        for r in s["rounds"]:
-            keys = {_plain(r["location"]), _plain(r["event"]).replace(" grand prix", ""), _plain(r["country"])}
-            if any(k and re.search(rf"\b{re.escape(k)}\b", t) for k in keys):
-                rnd = r["round"]
-                break
-        m = re.search(r"\b(?:round|r)\s?(\d{1,2})\b", t)
-        if rnd is None and m:
-            rnd = int(m.group(1))
+    if not any(k in _plain(text) for k in ("tonight", "today", "this race", "live")):
+        rnd = _round_named(text)
         if rnd is None:
             rnd = context.get("round")
     if rnd is None or rnd == current or (DATA / f"r{rnd:02d}.json").exists():
@@ -527,6 +536,60 @@ def _lap(sec: float | None) -> str:
 
 LIVE_RACE_WORDS = ("leading", "leader", "running order", "positions", "race control", "track status", "right now", "happening", "who is winning", "who's winning")
 
+# General questions the engine answers without an LLM, when no driver or race
+# is named (the AI mode explains anything). Specific topics first.
+CONCEPTS = (
+    (("tyre model", "tire model", "degradation", "tyre wear", "tire wear", "wear model"),
+     "Every lap time is modelled as driver pace + compound offset + wear × tyre age (wear grows with fuel load) − fuel burn per lap. "
+     "Wear is measured as the drop-off inside each stint of every earlier 2026 race, updated with the weekend's practice race sims "
+     "(scaled by a practice-to-race ratio learned on earlier weekends) and, during a race, with every car's green-flag laps. "
+     "Each driver also has a personal wear multiplier learned from their own stints."),
+    (("undercut", "overcut"),
+     "An undercut is pitting before a rival so the fresh tyres gain more than the stop costs, and you come out ahead when they stop. "
+     "An overcut is staying out longer, when old tyres are still quick or the rival would rejoin in traffic. "
+     "On the Live pit wall, the race-craft card shows where the selected car would rejoin if it boxed now, and which rivals threaten an "
+     "undercut, including what it still gains if they cover on the next lap."),
+    (("safety car", "vsc", "virtual safety"),
+     "A stop under a Safety Car or VSC costs much less than a green-flag stop because the field is slowed, so it is often a cheap stop. "
+     "The engine uses per-lap Safety Car and VSC chances from 2026 races blended with each circuit's 2024-25 record, includes them in every "
+     "simulated race, and the live call flags a cheap stop when one comes out. Ask e.g. 'Safety Car on lap 20 for Norris?' for a what-if."),
+    (("monte carlo", "simulated races", "race simulation", "simulation"),
+     "Two kinds of simulation. The strategy Monte Carlo replays the rest of the race hundreds of times with random Safety Cars, VSCs and "
+     "tyre-model uncertainty, and reports how often each plan is fastest (close calls get up to four times as many runs). The race simulation "
+     "runs the whole field lap by lap, with traffic, overtaking learned per circuit, pit stops and Safety Cars, and ranks each driver's plans "
+     "by expected finishing position."),
+    (("optimiser", "optimizer", "optimise", "optimize", "dynamic programming"),
+     "The optimiser is exact dynamic programming over every 0-3 stop compound sequence and every pit lap, with the two-compound rule, "
+     "stint-life limits and each driver's remaining tyre sets. It solves a race in about 10 ms, so it re-plans every lap during a race."),
+    (("conformal", "prediction interval", "uncertainty", "confidence interval"),
+     "First-stop intervals are split-conformal: the errors on earlier races set an 80% interval (with a finite-sample correction), and "
+     "coverage is measured rather than assumed: {coverage} of actual first stops fell inside on the 2026 backtest."),
+    (("walk-forward", "walk forward", "leakage", "how was it tested", "how is it tested", "how do you test"),
+     "Every race is predicted with models trained only on earlier races (walk-forward), never on random splits, so the scorecard shows how "
+     "the engine would have done in real time. Ask 'how accurate are you?' for the numbers."),
+    (("behaviour model", "behavior model", "likely call", "team call", "what teams will do"),
+     "The 'likely call' comes from a walk-forward logistic regression that learns how teams actually choose the stop count and starting tyre, "
+     "from physics features (1- vs 2-stop gap, optimal stop lap, wear, grid slot, practice tyre use). The optimiser then times the plan inside "
+     "that choice. 'Fastest' and 'likely' are reported separately."),
+    (("how does it work", "how does this work", "how do you work", "how does pitwall", "what is pitwall", "what can you do",
+      "what do you do", "methodology", "how are the predictions made", "how do you predict"),
+     "PitWall AI models every car's lap times (pace, tyre compound, wear, fuel), learns them from 2026 races and each weekend's practice, "
+     "finds the fastest plan exactly, stress-tests it in simulated races with Safety Cars, and simulates the whole field to rank plans by "
+     "finishing position. During a race it re-plans every lap from F1 live timing. Ask me about a driver's strategy, a race result, a Safety "
+     "Car what-if, who's leading right now, or how accurate the model is."),
+)
+QUESTION_WORDS = ("how", "what", "what's", "whats", "why", "explain", "mean", "means", "tell me about")
+
+
+def _concept(t: str) -> str | None:
+    if not any(re.search(rf"(?<![\w']){re.escape(w)}(?![\w'])", t) for w in QUESTION_WORDS):
+        return None
+    text = next((text for keys, text in CONCEPTS if any(k in t for k in keys)), None)
+    if text and "{coverage}" in text:
+        cov = (tool_backtest() or {}).get("conformal_coverage")
+        text = text.replace("{coverage}", f"{cov:.0%}" if cov is not None else "the reported share")
+    return text
+
 
 def chat_engine(messages: list[dict], context: dict) -> dict:
     q = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
@@ -549,6 +612,8 @@ def chat_engine(messages: list[dict], context: dict) -> dict:
                 note += f"R{asked} {_load(asked)['event']} has no grid until qualifying, so this is from R{rnd} {_load(rnd)['event']}. "
             else:
                 rnd = asked
+        if not drv and _round_named(q) is None and (text := _concept(t)):
+            return {"reply": text, "tools_used": used, "mode": "engine (no LLM key configured)"}
         if any(k in t for k in SESSION_WORDS) and not note and asked == _season_current():
             used.append("live_session")
             r = tool_live_session()
@@ -559,6 +624,13 @@ def chat_engine(messages: list[dict], context: dict) -> dict:
                 state = {"Started": "live", "Ends": "finished", "Finished": "finished", "Finalised": "finished", "Inactive": "not started yet"}.get(ses.get("status"), "on air")
                 return {"reply": f"{ses.get('meeting') or ''} {ses.get('name') or 'session'} ({state}): "
                                  f"{order or 'no timed laps yet'}.", "tools_used": used, "mode": "engine (no LLM key configured)"}
+            if any(k in t for k in ("qualifying", "quali", "pole")):  # the latest qualifying instead
+                d = _load(rnd)
+                order = sorted((x for x in d["drivers"] if x.get("quali")), key=lambda x: x["quali"])
+                if order:
+                    return {"reply": f"{r['error']} Latest qualifying, {d['event']}: " + " · ".join(f"{x['quali']}. {x['driver']}" for x in order[:10]) + ".",
+                            "tools_used": used, "mode": "engine (no LLM key configured)"}
+            return {"reply": r["error"], "tools_used": used, "mode": "engine (no LLM key configured)"}
         if any(k in t for k in ("history", "last year", "previous years", "before at", "usually")):
             used.append("circuit_history")
             r = tool_circuit_history(rnd if rnd == asked else asked)
@@ -596,6 +668,7 @@ def chat_engine(messages: list[dict], context: dict) -> dict:
             if "error" not in r:
                 return {"reply": f"Lap {r['lap']}/{r['total_laps']}, P{r['position']} on {r['tyre']['compound'].title()}s ({r['tyre']['age']} laps): {r['call']['headline']}.",
                         "tools_used": used, "mode": "engine (no LLM key configured)"}
+            note += f"{r['error']} The pre-race plan instead: "
         if drv:
             used.append("driver_strategy")
             r = tool_driver_strategy(rnd, drv)

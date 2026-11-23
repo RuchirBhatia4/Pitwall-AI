@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowLeft, Info, Radio, Timer } from "lucide-react";
+import { ArrowLeft, ArrowRight, Info, Radio, Timer } from "lucide-react";
 import { api, pct, secs, useApi } from "@/lib/api";
-import type { RaceFile } from "@/lib/types";
+import type { RaceFile, Season } from "@/lib/types";
 import { DriverPicker } from "@/components/DriverPicker";
 import { Section, Stat } from "@/components/Stat";
 import { StintTimeline, type TimelineRow } from "@/components/StintTimeline";
@@ -121,8 +121,43 @@ function WhatIf({ race, driver }: { race: RaceFile; driver: string }) {
   );
 }
 
+/** A round with no page yet (it is built from its practice sessions): when it will have one, and where to go meanwhile. */
+function NotBuilt({ round, season, error }: { round: number; season: Season | null; error: string }) {
+  const r = season?.rounds.find((x) => x.round === round);
+  if (!season || !r) return <div className="mx-auto max-w-7xl px-4 sm:px-6 py-10 text-bad">{error}</div>;
+  const latest = [...season.rounds].reverse().find((x) => x.available);
+  const fp1 = r.sessions?.["Practice 1"];
+  const when = fp1 && new Date(fp1.replace(" ", "T") + "Z").toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
+  return (
+    <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8 space-y-4">
+      <Link href="/" className="text-sm text-text-3 hover:text-text inline-flex items-center gap-1">
+        <ArrowLeft size={14} /> Season
+      </Link>
+      <h1 className="text-3xl font-semibold tracking-tight">
+        <span className="text-text-3 tabular mr-2">R{String(r.round).padStart(2, "0")}</span>
+        {r.event}
+      </h1>
+      <p className="text-text-2 max-w-2xl">
+        Strategy predictions for this race are built from its practice sessions: they appear about two hours after first practice starts
+        {when ? ` (${when})` : ""} and update by themselves after every session.
+      </p>
+      <div className="flex flex-wrap gap-3">
+        {latest && (
+          <Link href={`/race/${latest.round}`} className="inline-flex items-center gap-2 rounded-lg border border-line-strong px-4 py-2.5 hover:bg-surface-2">
+            Latest race: {latest.event} <ArrowRight size={16} />
+          </Link>
+        )}
+        <Link href="/live" className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 font-semibold text-on-accent hover:brightness-110">
+          <Radio size={16} /> Live pit wall
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 export function RaceView({ round }: { round: number }) {
   const { data: race, error } = useApi<RaceFile>(`/api/races/${round}`);
+  const { data: season } = useApi<Season>(error ? "/api/season" : null);
   const [driver, setDriver] = useState<string | null>(null);
   const { isMine } = useTeam();
 
@@ -134,7 +169,7 @@ export function RaceView({ round }: { round: number }) {
   // Opens on the visitor's team (its best-placed car), else the leader.
   const sel = driver ?? drivers.find((d) => isMine(d.team))?.driver ?? drivers[0]?.driver ?? null;
 
-  if (error) return <div className="mx-auto max-w-7xl px-4 sm:px-6 py-10 text-bad">{error}</div>;
+  if (error) return <NotBuilt round={round} season={season} error={error} />;
   if (!race) return <StrategyLoader label="Loading race…" className="mx-auto max-w-7xl px-4 sm:px-6 py-10" />;
 
   const w = race.weekend;

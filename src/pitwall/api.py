@@ -37,7 +37,7 @@ def _round_file(rnd: int, mtime: float) -> dict:
 def load_round(rnd: int) -> dict:
     path = DATA / f"r{rnd:02d}.json"
     if not path.exists():
-        raise HTTPException(404, f"Round {rnd} has not been built yet (python -m src.pitwall.build_season)")
+        raise HTTPException(404, f"Round {rnd} is not built yet: a round is built from its practice sessions, after first practice.")
     return _round_file(rnd, path.stat().st_mtime)
 
 
